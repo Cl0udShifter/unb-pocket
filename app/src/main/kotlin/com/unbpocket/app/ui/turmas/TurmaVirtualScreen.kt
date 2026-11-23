@@ -418,19 +418,22 @@ fun TurmaVirtualScreen(
                                                     color = colors.ink,
                                                 )
                                                 Text(
-                                                    text = reg.situacaoTexto,
+                                                    text = reg.situacaoTexto.ifBlank { "Não registrado" },
                                                     style = typography.label,
                                                     color = colors.muted,
                                                 )
                                             }
-                                            StatusTag(
-                                                text = if (reg.presente) {
-                                                    "Presente"
-                                                } else {
-                                                    "${reg.faltasNoDia} falta(s)"
-                                                },
-                                                tone = if (reg.presente) StatusTagTone.INFO else StatusTagTone.DANGER,
-                                            )
+                                            if (reg.presente) {
+                                                StatusTag(
+                                                    text = "Presente",
+                                                    tone = StatusTagTone.INFO,
+                                                )
+                                            } else if (reg.faltasNoDia > 0) {
+                                                StatusTag(
+                                                    text = "${reg.faltasNoDia} falta(s)",
+                                                    tone = StatusTagTone.DANGER,
+                                                )
+                                            }
                                         }
                                     }
                                 }

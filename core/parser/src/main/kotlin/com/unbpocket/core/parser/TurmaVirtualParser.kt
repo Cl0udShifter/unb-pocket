@@ -80,6 +80,18 @@ object TurmaVirtualParser {
     private val idArquivoRegex = Regex("""idArquivo=(\d+)""")
     private val verifCodeRegex = Regex("""(?:código de verificação|codigo de verificacao)\s*:?\s*([a-zA-Z0-9]{6,20})""", RegexOption.IGNORE_CASE)
     private val digitsRegex = Regex("""\d+""")
+    private val unregisteredFrequenciaMarkers = listOf(
+        "nao registrad",
+        "nao lancad",
+        "nao informad",
+        "sem registr",
+        "sem chamad",
+        "nao houve",
+        "nao ministrad",
+        "feriado",
+        "cancelad",
+        "suspens",
+    )
 
     fun parseAtestadoMatricula(html: String): ParsedAtestadoMatricula {
         val doc = Jsoup.parse(html)
@@ -253,11 +265,24 @@ object TurmaVirtualParser {
             val situacao = cols[1].text().trim()
             if (!data.contains("/")) continue
             val normSit = CasAndJsfParser.normalizeLabel(situacao)
-            val presente = normSit.contains("presente")
-            val faltasDia = if (presente) 0 else digitsRegex.find(situacao)?.value?.toIntOrNull() ?: 1
+            val presente = normSit.contains("presente") || normSit.contains("presenca")
+            val unregistered = normSit.isBlank() ||
+                normSit.all { it == '-' || it == '_' } ||
+                unregisteredFrequenciaMarkers.any { normSit.contains(it) }
+            val faltasDia = when {
+                presente || unregistered -> 0
+                else -> {
+                    val parsedDigits = digitsRegex.find(situacao)?.value?.toIntOrNull()
+                    when {
+                        parsedDigits != null -> parsedDigits
+                        normSit.contains("falta") || normSit.contains("ausent") -> 1
+                        else -> 0
+                    }
+                }
+            }
             registros += RegistroFrequenciaDia(
                 dataTexto = data,
-                situacaoTexto = situacao,
+                situacaoTexto = situacao.ifBlank { "Não registrado" },
                 faltasNoDia = faltasDia,
                 presente = presente,
             )

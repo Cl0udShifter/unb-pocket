@@ -104,6 +104,53 @@ class TurmaVirtualParserTest {
     }
 
     @Test
+    fun doesNotCountUnregisteredFrequencyRowsAsAbsences() {
+        val freqHtml = """
+            <html><body>
+              <fieldset>
+                <legend>Mapa de Frequências</legend>
+                <table class="listagem">
+                  <tbody>
+                    <tr><td>10/08/2026</td><td>Presente</td></tr>
+                    <tr><td>12/08/2026</td><td>Não registrado</td></tr>
+                    <tr><td>14/08/2026</td><td>Não lançada</td></tr>
+                    <tr><td>17/08/2026</td><td>--</td></tr>
+                    <tr><td>19/08/2026</td><td>2 Faltas</td></tr>
+                    <tr><td>21/08/2026</td><td>Falta</td></tr>
+                  </tbody>
+                </table>
+                <p>Presenças Registradas: 2</p>
+                <p>Número de Aulas com Registro de Frequência: 5</p>
+                <p>Porcentagem de Frequência em relação as Aulas com Registro de Frequência: 40%</p>
+                <p>Número de Aulas definidas pela CH do Componente: 32</p>
+                <p>Porcentagem de Frequência em relação a CH: 90%</p>
+              </fieldset>
+            </body></html>
+        """.trimIndent()
+
+        val freq = (TurmaVirtualParser.parseAvaFrequencia(freqHtml) as CoreResult.Success).value
+        assertEquals(6, freq.registrosDiarios.size)
+
+        val naoRegistrado = freq.registrosDiarios[1]
+        assertEquals("Não registrado", naoRegistrado.situacaoTexto)
+        assertFalse(naoRegistrado.presente)
+        assertEquals(0, naoRegistrado.faltasNoDia)
+
+        val naoLancada = freq.registrosDiarios[2]
+        assertFalse(naoLancada.presente)
+        assertEquals(0, naoLancada.faltasNoDia)
+
+        val dash = freq.registrosDiarios[3]
+        assertFalse(dash.presente)
+        assertEquals(0, dash.faltasNoDia)
+
+        assertEquals(2, freq.registrosDiarios[4].faltasNoDia)
+        assertEquals(1, freq.registrosDiarios[5].faltasNoDia)
+        assertEquals(3, freq.faltasComputadas)
+        assertEquals(5, freq.faltasRestantes)
+    }
+
+    @Test
     fun parsesPartialGradesUnavailableAndAvailableStatesAndAtestado() {
         val emptyNotasHtml = "<html><body><p class='aviso'>Ainda não foram lançadas notas.</p></body></html>"
         val emptyNotas = (TurmaVirtualParser.parseAvaNotasParciais(emptyNotasHtml) as CoreResult.Success).value
