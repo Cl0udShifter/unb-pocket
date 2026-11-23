@@ -120,7 +120,10 @@ object UnbPocketCoreFactory {
             clockMillis = clockMillis,
             preloadDispatcher = preloadDispatcher,
         )
-        onLogoutCallback = { core.cancelAndResetPreload() }
+        onLogoutCallback = {
+            core.cancelAndResetPreload()
+            turmasRepo.clearRuntimeState()
+        }
         return core
     }
 }

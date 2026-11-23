@@ -799,6 +799,101 @@ class UnbPocketCoreIntegrationTest {
         assertEquals(setOf(23408L), core.ru.observePreferencias().first().noticiasVistasIds)
     }
 
+    @Test
+    fun getNoticiaCompletaUsesFastPathAfterAvaHomeAndCachesInRoom() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        val discentePosts = AtomicInteger(0)
+        val avaPosts = AtomicInteger(0)
+
+        val avaHtmlWithVisualizar = """
+            <html><body>
+              <div id="nomeTurma"><span id="linkCodigoTurma">ENE0064 - </span><span id="linkNomeTurma">REDES SEM FIO</span><span id="linkPeriodoTurma">- T01</span></div>
+              <input type="hidden" name="idTurma" value="1614167" />
+              <input type="hidden" name="javax.faces.ViewState" value="j_id2" />
+              <div id="barraDireita">
+                <div>Aulas (Ministradas/Total): <i>40 / 64</i></div>
+                <div class="rich-panel-body">
+                  20/11/2026 10:00<br/>
+                  <i>Aviso Sem Anexo</i>
+                  <form id="f1">
+                    <input type="hidden" name="id" value="24442200" />
+                    <a onclick="jsfcljs(document.getElementById('f1'),{'f1:ver':'f1:ver'},'')">(Visualizar)</a>
+                  </form>
+                  15/11/2026 08:30<br/>
+                  <i>Aviso Anterior</i>
+                  <form id="f2">
+                    <input type="hidden" name="id" value="24441000" />
+                    <a onclick="jsfcljs(document.getElementById('f2'),{'f2:ver':'f2:ver'},'')">(Visualizar)</a>
+                  </form>
+                </div>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/verPortalDiscente.do")
+                    path.startsWith("/sigaa/verPortalDiscente.do") ->
+                        latin1Response(discenteHomeHtml())
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        discentePosts.incrementAndGet()
+                        latin1Response(avaHtmlWithVisualizar)
+                    }
+                    path.startsWith("/sigaa/ava/index.jsf") && request.method == "POST" -> {
+                        avaPosts.incrementAndGet()
+                        val titulo = if (body.contains("24442200")) "Aviso Sem Anexo" else "Aviso Anterior"
+                        val conteudo = if (body.contains("24442200")) "Conteudo completo 1" else "Conteudo completo 2"
+                        latin1Response(
+                            """
+                            <html><body>
+                              <div id="ultimaNoticia">
+                                <h4>$titulo - 20/11/2026 10:00</h4>
+                                <span class="conteudoNoticia"><p>$conteudo</p></span>
+                              </div>
+                            </body></html>
+                            """.trimIndent(),
+                        )
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        val detalhe = (core.turmas.refreshTurmaDetalhe(frontEndId) as CoreResult.Success).value
+        assertEquals(listOf("Aviso Sem Anexo", "Aviso Anterior"), detalhe.historicoNoticiasResumo.map { it.titulo })
+
+        discentePosts.set(0)
+        avaPosts.set(0)
+
+        // 1. Primeira leitura usa fast-path direto no AVA (1 POST, sem reentrar em discente.jsf)
+        val first = (core.turmas.getNoticiaCompleta(frontEndId, "24442200") as CoreResult.Success).value
+        assertEquals("Conteudo completo 1", first.conteudoTexto)
+        assertEquals(0, discentePosts.get())
+        assertEquals(1, avaPosts.get())
+
+        // 2. Segunda leitura do mesmo aviso vem do Room (0 requisicoes de rede)
+        val cached = (core.turmas.getNoticiaCompleta(frontEndId, "24442200") as CoreResult.Success).value
+        assertEquals("Conteudo completo 1", cached.conteudoTexto)
+        assertEquals(0, discentePosts.get())
+        assertEquals(1, avaPosts.get())
+
+        // 3. Outro aviso nao em cache reentra na turma e persiste no Room
+        val second = (core.turmas.getNoticiaCompleta(frontEndId, "24441000") as CoreResult.Success).value
+        assertEquals("Conteudo completo 2", second.conteudoTexto)
+        assertEquals(1, discentePosts.get())
+        assertEquals(2, avaPosts.get())
+    }
+
     private fun redirect(location: String) =
         MockResponse().setResponseCode(302).setHeader("Location", location)
 

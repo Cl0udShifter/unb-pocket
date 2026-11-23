@@ -191,4 +191,73 @@ class TurmaVirtualParserTest {
         assertEquals("LEONARDO AGUAYO", atestado.turmas[0].docenteNome)
         assertEquals("3c610b1b69", atestado.codigoVerificacao)
     }
+
+    @Test
+    fun extractsRealNoticeTitlesInsteadOfVisualizarFromBarraDireita() {
+        val avaHtml = """
+            <html><body>
+              <div id="nomeTurma">
+                <span id="linkCodigoTurma">ENE0295 - </span>
+                <span id="linkNomeTurma">LABORATORIO</span>
+                <span id="linkPeriodoTurma">- T04 (2026.2)</span>
+              </div>
+              <input type="hidden" name="idTurma" value="1616625" />
+              <input type="hidden" name="javax.faces.ViewState" value="j_id4" />
+              <div id="ultimaNoticia">
+                <h4>Experimento 11 - Roteiro - 22/11/2026 09:34</h4>
+                <span class="conteudoNoticia"><p>Leiam o roteiro.</p></span>
+              </div>
+              <div id="barraDireita">
+                <div class="rich-panel">
+                  <div class="rich-panel-header">Andamento das Aulas</div>
+                  <div class="rich-panel-body">Aulas (Ministradas/Total): <i>24 / 32</i></div>
+                </div>
+                <div class="rich-panel">
+                  <div class="rich-panel-header">Últimas Notícias</div>
+                  <div id="j_id_jsp_1879301362_155_body" class="rich-panel-body">
+                    22/11/2026 09:34<br/>
+                    <i>Experimento 11 - Roteiro</i>
+                    <form id="f1">
+                      <input type="hidden" name="id" value="24442200" />
+                      <a onclick="jsfcljs(document.getElementById('f1'),{'f1:v':'f1:v'},'')">(Visualizar)</a>
+                    </form>
+                    15/11/2026 14:20<br/>
+                    <i>Alteração na data da prova</i>
+                    <form id="f2">
+                      <input type="hidden" name="id" value="24441000" />
+                      <a onclick="jsfcljs(document.getElementById('f2'),{'f2:v':'f2:v'},'')"> (Visualizar) </a>
+                    </form>
+                    <table>
+                      <tr>
+                        <td>10/11/2026 08:00<br/><i>Aviso de laboratório</i></td>
+                        <td>
+                          <form id="f3">
+                            <input type="hidden" name="id" value="24440000" />
+                            <a onclick="jsfcljs(document.getElementById('f3'),{'f3:v':'f3:v'},'')">Visualizar</a>
+                          </form>
+                        </td>
+                      </tr>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val parsed = (TurmaVirtualParser.parseAvaHome(avaHtml, "FE_1") as CoreResult.Success).value
+        val historico = parsed.detalhe.historicoNoticiasResumo
+        assertEquals(3, historico.size)
+
+        assertEquals("24442200", historico[0].idNoticia)
+        assertEquals("22/11/2026 09:34", historico[0].dataHoraTexto)
+        assertEquals("Experimento 11 - Roteiro", historico[0].titulo)
+
+        assertEquals("24441000", historico[1].idNoticia)
+        assertEquals("15/11/2026 14:20", historico[1].dataHoraTexto)
+        assertEquals("Alteração na data da prova", historico[1].titulo)
+
+        assertEquals("24440000", historico[2].idNoticia)
+        assertEquals("10/11/2026 08:00", historico[2].dataHoraTexto)
+        assertEquals("Aviso de laboratório", historico[2].titulo)
+    }
 }

@@ -152,6 +152,7 @@ class SnapshotCacheStore(
         fun turmaNotas(frontEndId: String) = "turma_notas_$frontEndId"
         fun turmaAvaliacoes(frontEndId: String) = "turma_aval_$frontEndId"
         fun turmaTarefas(frontEndId: String) = "turma_tarefas_$frontEndId"
+        fun turmaNoticia(frontEndId: String, idNoticia: String) = "turma_noticia_${frontEndId}_$idNoticia"
         const val DISCENTE_RESUMO = "discente_resumo"
         const val DISCENTE_CARTEIRINHA = "discente_carteirinha"
         const val DISCENTE_BOLETIM = "discente_boletim"
@@ -567,17 +568,7 @@ internal object CacheMappers {
         aulasMinistradas = m.aulasMinistradas,
         aulasTotal = m.aulasTotal,
         percentualAndamento = m.percentualAndamento,
-        ultimaNoticia = m.ultimaNoticia?.let { n ->
-            NoticiaTurmaAvaDto(
-                idNoticia = n.idNoticia,
-                titulo = n.titulo,
-                dataHoraTexto = n.dataHoraTexto,
-                conteudoHtml = n.conteudoHtml,
-                conteudoTexto = n.conteudoTexto,
-                autor = n.autor,
-                anexos = n.anexos.map { AnexoArquivoSigaaDto(it.id, it.nomeArquivo) },
-            )
-        },
+        ultimaNoticia = m.ultimaNoticia?.let(::toDto),
         historicoNoticiasResumo = m.historicoNoticiasResumo.map { NoticiaTurmaResumoAvaDto(it.idNoticia, it.dataHoraTexto, it.titulo) },
         topicosAula = m.topicosAula.map { t ->
             TopicoAulaAvaDto(
@@ -590,6 +581,26 @@ internal object CacheMappers {
         },
     )
 
+    fun toDto(n: NoticiaTurmaAva) = NoticiaTurmaAvaDto(
+        idNoticia = n.idNoticia,
+        titulo = n.titulo,
+        dataHoraTexto = n.dataHoraTexto,
+        conteudoHtml = n.conteudoHtml,
+        conteudoTexto = n.conteudoTexto,
+        autor = n.autor,
+        anexos = n.anexos.map { AnexoArquivoSigaaDto(it.id, it.nomeArquivo) },
+    )
+
+    fun fromDto(n: NoticiaTurmaAvaDto) = NoticiaTurmaAva(
+        idNoticia = n.idNoticia,
+        titulo = n.titulo,
+        dataHoraTexto = n.dataHoraTexto,
+        conteudoHtml = n.conteudoHtml,
+        conteudoTexto = n.conteudoTexto,
+        autor = n.autor,
+        anexos = n.anexos.map { AnexoArquivoSigaa(it.id, it.nomeArquivo) },
+    )
+
     fun fromDto(d: TurmaDetalheAvaDto) = TurmaDetalheAva(
         idTurma = d.idTurma,
         frontEndIdTurma = d.frontEndIdTurma,
@@ -599,17 +610,7 @@ internal object CacheMappers {
         aulasMinistradas = d.aulasMinistradas,
         aulasTotal = d.aulasTotal,
         percentualAndamento = d.percentualAndamento,
-        ultimaNoticia = d.ultimaNoticia?.let { n ->
-            NoticiaTurmaAva(
-                idNoticia = n.idNoticia,
-                titulo = n.titulo,
-                dataHoraTexto = n.dataHoraTexto,
-                conteudoHtml = n.conteudoHtml,
-                conteudoTexto = n.conteudoTexto,
-                autor = n.autor,
-                anexos = n.anexos.map { AnexoArquivoSigaa(it.id, it.nomeArquivo) },
-            )
-        },
+        ultimaNoticia = d.ultimaNoticia?.let(::fromDto),
         historicoNoticiasResumo = d.historicoNoticiasResumo.map { NoticiaTurmaResumoAva(it.idNoticia, it.dataHoraTexto, it.titulo) },
         topicosAula = d.topicosAula.map { t ->
             TopicoAulaAva(

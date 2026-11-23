@@ -17,7 +17,10 @@ import com.unbpocket.core.model.ru.ItemCardapioRu
 import com.unbpocket.core.model.ru.NoticiaRu
 import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.TipoRefeicao
+import com.unbpocket.core.model.turmas.NoticiaTurmaAva
+import com.unbpocket.core.model.turmas.NoticiaTurmaResumoAva
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.collect
@@ -281,6 +284,89 @@ class ViewModelsTest {
         assertEquals("slides.pdf", vm.detailUiState.value.downloadedFileEvent?.nomeArquivo)
         vm.consumeDownloadedFile()
         assertNull(vm.detailUiState.value.downloadedFileEvent)
+
+        collector.cancel()
+    }
+
+    @Test
+    fun `TurmasViewModel shows immediate per-notice loading and resolves matching latest notice instantly`() = runTest {
+        val core = FakeUnbPocketCore()
+        val latest = NoticiaTurmaAva(
+            idNoticia = null,
+            titulo = "Roteiro 11",
+            dataHoraTexto = "22/11/2026 09:34",
+            conteudoHtml = "<p>Leitura</p>",
+            conteudoTexto = "Leitura",
+            autor = "DOCENTE",
+            anexos = emptyList(),
+        )
+        val detalhe = TurmaDetalheAva(
+            idTurma = "10",
+            frontEndIdTurma = "fe_10",
+            codigoDisciplina = "ENE0295",
+            nomeDisciplina = "LAB",
+            periodoTurmaTexto = "2026.2",
+            aulasMinistradas = 24,
+            aulasTotal = 32,
+            percentualAndamento = 75,
+            ultimaNoticia = latest,
+            historicoNoticiasResumo = listOf(
+                NoticiaTurmaResumoAva("n_latest", "22/11/2026 09:34", "Roteiro 11"),
+                NoticiaTurmaResumoAva("n1", "20/11/2026 10:00", "Aviso 1"),
+                NoticiaTurmaResumoAva("n2", "18/11/2026 08:00", "Aviso 2"),
+            ),
+            topicosAula = emptyList(),
+        )
+        core.turmasFake.detalhe.value = SyncedData(detalhe, DataOrigin.REMOTE, 1000L)
+
+        val d1 = CompletableDeferred<CoreResult<NoticiaTurmaAva>>()
+        val d2 = CompletableDeferred<CoreResult<NoticiaTurmaAva>>()
+        core.turmasFake.onGetNoticiaCompleta = { _, id ->
+            when (id) {
+                "n1" -> d1.await()
+                "n2" -> d2.await()
+                else -> CoreResult.Failure(CoreError.NetworkUnavailable)
+            }
+        }
+
+        val vm = TurmasViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.detailUiState.collect() }
+        vm.openTurma("fe_10")
+        advanceUntilIdle()
+
+        // Clicar na ultima noticia que ja corresponde ao detalhe exibido resolve em 0ms sem chamada de rede
+        vm.toggleNoticia("n_latest")
+        assertEquals("n_latest", vm.detailUiState.value.expandedNoticiaId)
+        assertTrue(vm.detailUiState.value.loadingNoticiaIds.isEmpty())
+        assertEquals(0, core.turmasFake.getNoticiaCompletaCalls)
+        assertEquals("Leitura", vm.detailUiState.value.fullNoticiaById["n_latest"]?.conteudoTexto)
+
+        // Clicar em comunicados antigos marca loading imediatamente e nao perde estado ao alternar entre avisos
+        vm.toggleNoticia("n1")
+        assertEquals("n1", vm.detailUiState.value.expandedNoticiaId)
+        assertTrue("n1" in vm.detailUiState.value.loadingNoticiaIds)
+
+        vm.toggleNoticia("n2")
+        assertEquals("n2", vm.detailUiState.value.expandedNoticiaId)
+        assertEquals(setOf("n1", "n2"), vm.detailUiState.value.loadingNoticiaIds)
+
+        d1.complete(
+            CoreResult.Success(
+                NoticiaTurmaAva("n1", "Aviso 1", "20/11/2026 10:00", "<p>Corpo 1</p>", "Corpo 1", null, emptyList()),
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(setOf("n2"), vm.detailUiState.value.loadingNoticiaIds)
+        assertEquals("Corpo 1", vm.detailUiState.value.fullNoticiaById["n1"]?.conteudoTexto)
+
+        d2.complete(
+            CoreResult.Success(
+                NoticiaTurmaAva("n2", "Aviso 2", "18/11/2026 08:00", "<p>Corpo 2</p>", "Corpo 2", null, emptyList()),
+            ),
+        )
+        advanceUntilIdle()
+        assertTrue(vm.detailUiState.value.loadingNoticiaIds.isEmpty())
+        assertEquals("Corpo 2", vm.detailUiState.value.fullNoticiaById["n2"]?.conteudoTexto)
 
         collector.cancel()
     }

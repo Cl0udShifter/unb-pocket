@@ -262,8 +262,10 @@ class FakeTurmasRepository : TurmasRepository {
     var refreshDetalheCalls = 0
     var refreshFrequenciaCalls = 0
     var refreshNotasCalls = 0
+    var getNoticiaCompletaCalls = 0
     var nextRefreshSemestreResult: CoreResult<List<TurmaResumo>>? = null
     var nextRefreshDetalheResult: CoreResult<TurmaDetalheAva>? = null
+    var onGetNoticiaCompleta: (suspend (String, String) -> CoreResult<NoticiaTurmaAva>)? = null
     var downloadedMaterialResult: CoreResult<ArquivoBaixado> = CoreResult.Success(
         ArquivoBaixado("slides.pdf", "application/pdf", "/tmp/slides.pdf", 120L),
     )
@@ -281,8 +283,11 @@ class FakeTurmasRepository : TurmasRepository {
             ?: CoreResult.Failure(CoreError.NetworkUnavailable)
     }
 
-    override suspend fun getNoticiaCompleta(frontEndIdTurma: String, idNoticia: String): CoreResult<NoticiaTurmaAva> =
-        CoreResult.Failure(CoreError.NetworkUnavailable)
+    override suspend fun getNoticiaCompleta(frontEndIdTurma: String, idNoticia: String): CoreResult<NoticiaTurmaAva> {
+        getNoticiaCompletaCalls++
+        return onGetNoticiaCompleta?.invoke(frontEndIdTurma, idNoticia)
+            ?: CoreResult.Failure(CoreError.NetworkUnavailable)
+    }
 
     override fun observeFrequencia(frontEndIdTurma: String): Flow<SyncedData<MapaFrequenciaTurma>?> = frequencia
     override suspend fun refreshFrequencia(frontEndIdTurma: String): CoreResult<MapaFrequenciaTurma> {

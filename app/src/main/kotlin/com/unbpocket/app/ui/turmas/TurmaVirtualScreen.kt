@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Grading
@@ -29,9 +30,12 @@ import androidx.compose.material.icons.rounded.Book
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.EventAvailable
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -283,7 +287,8 @@ fun TurmaVirtualScreen(
                                 ) { _, resumo ->
                                     val expanded = uiState.expandedNoticiaId == resumo.idNoticia
                                     val fullNoticia = uiState.fullNoticiaById[resumo.idNoticia]
-                                    val isLoadingThis = uiState.loadingNoticiaId == resumo.idNoticia
+                                    val isLoadingThis = resumo.idNoticia in uiState.loadingNoticiaIds ||
+                                        uiState.loadingNoticiaId == resumo.idNoticia
 
                                     EditorialCard(
                                         onClick = { onToggleNoticia(resumo.idNoticia) },
@@ -299,9 +304,35 @@ fun TurmaVirtualScreen(
                                                 color = colors.muted,
                                             )
                                             if (isLoadingThis) {
-                                                SkeletonInlineBar(
-                                                    width = 22.dp,
-                                                    height = 6.dp,
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                ) {
+                                                    Text(
+                                                        text = "Carregando...",
+                                                        style = typography.label,
+                                                        color = colors.muted,
+                                                    )
+                                                    SkeletonInlineBar(
+                                                        width = 22.dp,
+                                                        height = 6.dp,
+                                                        color = colors.muted,
+                                                    )
+                                                }
+                                            } else {
+                                                Icon(
+                                                    imageVector = if (expanded && fullNoticia != null) {
+                                                        Icons.Rounded.KeyboardArrowUp
+                                                    } else {
+                                                        Icons.Rounded.KeyboardArrowDown
+                                                    },
+                                                    contentDescription = if (expanded && fullNoticia != null) {
+                                                        "Recolher"
+                                                    } else {
+                                                        "Expandir"
+                                                    },
+                                                    tint = colors.muted,
+                                                    modifier = Modifier.size(18.dp),
                                                 )
                                             }
                                         }
@@ -336,16 +367,30 @@ fun TurmaVirtualScreen(
                                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                                     ) {
                                                         HairlineDivider()
-                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        LinearProgressIndicator(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .height(2.dp)
+                                                                .clip(CircleShape),
+                                                            color = colors.ink,
+                                                            trackColor = colors.border,
+                                                        )
+                                                        Text(
+                                                            text = "Carregando comunicado do SIGAA...",
+                                                            style = typography.label,
+                                                            color = colors.muted,
+                                                        )
                                                         SkeletonBox(
                                                             modifier = Modifier
                                                                 .fillMaxWidth(0.92f)
                                                                 .height(12.dp),
+                                                            color = colors.border,
                                                         )
                                                         SkeletonBox(
                                                             modifier = Modifier
                                                                 .fillMaxWidth(0.75f)
                                                                 .height(12.dp),
+                                                            color = colors.border,
                                                         )
                                                     }
                                                 }

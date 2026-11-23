@@ -16,6 +16,9 @@ import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import com.unbpocket.core.model.turmas.UnidadeNotaTurma
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
+import org.jsoup.nodes.Element
+import org.jsoup.nodes.Node
+import org.jsoup.nodes.TextNode
 import kotlin.math.floor
 
 data class AtestadoTurmaItem(
@@ -80,6 +83,17 @@ object TurmaVirtualParser {
     private val idArquivoRegex = Regex("""idArquivo=(\d+)""")
     private val verifCodeRegex = Regex("""(?:código de verificação|codigo de verificacao)\s*:?\s*([a-zA-Z0-9]{6,20})""", RegexOption.IGNORE_CASE)
     private val digitsRegex = Regex("""\d+""")
+    private val noticiaDateRegex = Regex("""\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2})?""")
+    private val genericNoticeActions = setOf(
+        "visualizar",
+        "ver",
+        "abrir",
+        "ler",
+        "detalhes",
+        "ver mais",
+        "saiba mais",
+        "acessar",
+    )
     private val unregisteredFrequenciaMarkers = listOf(
         "nao registrad",
         "nao lancad",
@@ -162,7 +176,7 @@ object TurmaVirtualParser {
 
         val anexoRefs = linkedMapOf<String, ParsedAvaAnexoRef>()
         val ultimaNoticia = parseUltimaNoticia(doc, anexoRefs)
-        val (noticiasResumo, noticiaRefs) = parseHistoricoNoticias(doc, viewState)
+        val (noticiasResumo, noticiaRefs) = parseHistoricoNoticias(doc, viewState, ultimaNoticia)
 
         val materialRefs = linkedMapOf<String, ParsedAvaMaterialRef>()
         val topicos = parseTopicosAula(doc, viewState, materialRefs)
@@ -478,17 +492,14 @@ object TurmaVirtualParser {
     private fun parseHistoricoNoticias(
         doc: Document,
         viewState: String,
+        ultimaNoticia: NoticiaTurmaAva? = null,
     ): Pair<List<NoticiaTurmaResumoAva>, Map<String, ParsedAvaNoticiaRef>> {
         val list = mutableListOf<NoticiaTurmaResumoAva>()
         val refs = linkedMapOf<String, ParsedAvaNoticiaRef>()
         for (form in doc.select("#barraDireita form")) {
             val idInput = form.selectFirst("input[name=id]")?.attr("value")?.trim() ?: continue
             val link = form.selectFirst("a[onclick]") ?: continue
-            val parentText = form.parent()?.text().orEmpty()
-            val dataHora = Regex("""\d{2}/\d{2}/\d{4}(?:\s+\d{2}:\d{2})?""").find(parentText)?.value.orEmpty()
-            val titulo = link.text().trim().ifEmpty {
-                form.parent()?.selectFirst("i")?.text()?.trim().orEmpty()
-            }
+            val (dataHora, titulo) = extractNoticiaResumoHeader(form, link, ultimaNoticia)
             val formId = form.attr("id").trim()
             val params = linkedMapOf<String, String>()
             if (formId.isNotEmpty()) params[formId] = formId
@@ -501,6 +512,95 @@ object TurmaVirtualParser {
             refs[idInput] = ParsedAvaNoticiaRef(resumo = resumo, formParams = params)
         }
         return list to refs
+    }
+
+    private fun extractNoticiaResumoHeader(
+        form: Element,
+        link: Element,
+        ultimaNoticia: NoticiaTurmaAva?,
+    ): Pair<String, String> {
+        val segmentNodes = collectPrecedingNoticeNodes(form)
+        val precedingText = renderNodesText(segmentNodes)
+        val dataHora = noticiaDateRegex.findAll(precedingText).lastOrNull()?.value
+            ?: noticiaDateRegex.find(form.text())?.value.orEmpty()
+
+        val styledCandidates = (segmentNodes + form.children().filter { !it.tagName().equals("a", ignoreCase = true) })
+            .flatMap { node ->
+                when (node) {
+                    is Element -> {
+                        val own = if (node.tagName().lowercase() in setOf("i", "b", "strong")) listOf(node) else emptyList()
+                        own + node.select("i, b, strong")
+                    }
+                    else -> emptyList()
+                }
+            }
+            .map { it.text().trim() }
+            .filter { it.isNotEmpty() && !isGenericNoticeAction(it) }
+
+        val linkTitle = link.text().trim().takeUnless(::isGenericNoticeAction)
+        val plainLeftover = precedingText
+            .let { text -> noticiaDateRegex.replace(text, " ") }
+            .replace(Regex("""\s+"""), " ")
+            .trim(' ', '-', ':', '|', '\u2013', '\u2022')
+            .takeUnless { it.isEmpty() || isGenericNoticeAction(it) }
+
+        val titulo = styledCandidates.lastOrNull()
+            ?: linkTitle
+            ?: plainLeftover
+            ?: ultimaNoticia?.takeIf { dataHora.isNotEmpty() && it.dataHoraTexto == dataHora }?.titulo?.takeIf { it.isNotBlank() }
+            ?: "Comunicado"
+
+        return dataHora to titulo
+    }
+
+    private fun collectPrecedingNoticeNodes(form: Element): List<Node> {
+        val nodes = ArrayList<Node>()
+        var cursor = form.previousSibling()
+        while (cursor != null) {
+            if (cursor is Element && isNoticeBoundary(cursor)) {
+                break
+            }
+            nodes.add(0, cursor)
+            cursor = cursor.previousSibling()
+        }
+
+        val hasMetadataInSiblings = renderNodesText(nodes).isNotBlank()
+        if (!hasMetadataInSiblings && noticiaDateRegex.find(form.text()) == null) {
+            val parent = form.parent()
+            if (parent != null && parent.id() != "barraDireita" && parent.select("form").size == 1) {
+                val prevContainer = parent.previousElementSibling()
+                if (prevContainer != null && !isNoticeBoundary(prevContainer) && prevContainer.text().isNotBlank()) {
+                    return listOf(prevContainer)
+                }
+            }
+        }
+        return nodes
+    }
+
+    private fun isNoticeBoundary(element: Element): Boolean {
+        val tag = element.tagName().lowercase()
+        if (tag in setOf("form", "hr", "h1", "h2", "h3", "h4", "h5", "h6", "table")) return true
+        if (element.selectFirst("form") != null) return true
+        if (element.hasClass("rich-panel") || element.hasClass("rich-panel-header") || element.hasClass("progress-bar")) return true
+        val norm = CasAndJsfParser.normalizeLabel(element.text())
+        return norm.contains("ministradas") || norm.contains("carga horaria")
+    }
+
+    private fun renderNodesText(nodes: List<Node>): String =
+        nodes.joinToString(" ") { node ->
+            when (node) {
+                is TextNode -> node.text()
+                is Element -> node.text()
+                else -> ""
+            }
+        }.replace(Regex("""\s+"""), " ").trim()
+
+    private fun isGenericNoticeAction(text: String): Boolean {
+        val cleaned = CasAndJsfParser.normalizeLabel(text)
+            .trim()
+            .trim('(', ')', '[', ']', '.', ':')
+            .trim()
+        return cleaned.isEmpty() || cleaned in genericNoticeActions
     }
 
     private fun parseTopicosAula(

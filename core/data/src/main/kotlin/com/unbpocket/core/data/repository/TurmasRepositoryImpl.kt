@@ -4,6 +4,7 @@ import com.unbpocket.core.data.local.CacheMappers
 import com.unbpocket.core.data.local.FileStore
 import com.unbpocket.core.data.local.MapaFrequenciaTurmaDto
 import com.unbpocket.core.data.local.NotasParciaisTurmaDto
+import com.unbpocket.core.data.local.NoticiaTurmaAvaDto
 import com.unbpocket.core.data.local.SnapshotCacheStore
 import com.unbpocket.core.data.local.TurmaDetalheAvaDto
 import com.unbpocket.core.data.session.SigaaNavigator
@@ -28,6 +29,7 @@ import com.unbpocket.core.parser.CasAndJsfParser
 import com.unbpocket.core.parser.DiscentePortalParser
 import com.unbpocket.core.parser.ParsedAvaFormTurmaItem
 import com.unbpocket.core.parser.ParsedAvaHome
+import com.unbpocket.core.parser.ParsedAvaNoticiaRef
 import com.unbpocket.core.parser.TurmaVirtualParser
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.ConcurrentHashMap
@@ -42,6 +44,13 @@ class TurmasRepositoryImpl(
     private val fileStore: FileStore,
 ) : TurmasRepository {
     private val runtimeAvaCache = ConcurrentHashMap<String, ParsedAvaHome>()
+    @Volatile
+    private var currentAvaHomeTurmaId: String? = null
+
+    internal fun clearRuntimeState() {
+        runtimeAvaCache.clear()
+        currentAvaHomeTurmaId = null
+    }
 
     override fun observeTurmasSemestre(): Flow<SyncedData<List<TurmaResumo>>?> =
         cacheStore.observe(
@@ -167,24 +176,78 @@ class TurmasRepositoryImpl(
     override suspend fun getNoticiaCompleta(
         frontEndIdTurma: String,
         idNoticia: String,
-    ): CoreResult<NoticiaTurmaAva> = coordinator.withAuthenticatedJsf { nav ->
-        val (avaHome, _) = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
-            is CoreResult.Failure -> return@withAuthenticatedJsf entered
-            is CoreResult.Success -> entered.value
+    ): CoreResult<NoticiaTurmaAva> {
+        val cached = cacheStore.get(
+            cacheKey = SnapshotCacheStore.Keys.turmaNoticia(frontEndIdTurma, idNoticia),
+            serializer = NoticiaTurmaAvaDto.serializer(),
+            fromDto = CacheMappers::fromDto,
+        )?.value
+        if (cached != null) {
+            val hasAllAnexoRefs = cached.anexos.isEmpty() ||
+                runtimeAvaCache[frontEndIdTurma]?.anexoRefs?.keys?.containsAll(cached.anexos.map { it.id }) == true
+            if (hasAllAnexoRefs) {
+                return CoreResult.Success(cached)
+            }
         }
 
-        val ref = avaHome.noticiaRefs[idNoticia]
-            ?: return@withAuthenticatedJsf CoreResult.Failure(
-                CoreError.UnavailableForProfile("Noticia AVA", "Noticia $idNoticia nao encontrada na turma."),
-            )
+        val fetched = coordinator.withAuthenticatedJsf { nav ->
+            val directRef = if (currentAvaHomeTurmaId == frontEndIdTurma) {
+                runtimeAvaCache[frontEndIdTurma]?.noticiaRefs?.get(idNoticia)
+            } else {
+                null
+            }
 
+            if (directRef != null) {
+                currentAvaHomeTurmaId = null
+                when (val directRes = fetchAndCacheNoticia(nav, frontEndIdTurma, idNoticia, directRef)) {
+                    is CoreResult.Success -> return@withAuthenticatedJsf directRes
+                    is CoreResult.Failure -> {
+                        if (directRes.error is CoreError.SessionExpired ||
+                            directRes.error is CoreError.NetworkUnavailable
+                        ) {
+                            return@withAuthenticatedJsf directRes
+                        }
+                    }
+                }
+            }
+
+            val (avaHome, _) = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
+                is CoreResult.Failure -> return@withAuthenticatedJsf entered
+                is CoreResult.Success -> entered.value
+            }
+
+            val ref = avaHome.noticiaRefs[idNoticia]
+                ?: return@withAuthenticatedJsf CoreResult.Failure(
+                    CoreError.UnavailableForProfile("Noticia AVA", "Noticia $idNoticia nao encontrada na turma."),
+                )
+
+            currentAvaHomeTurmaId = null
+            fetchAndCacheNoticia(nav, frontEndIdTurma, idNoticia, ref)
+        }
+
+        return when (fetched) {
+            is CoreResult.Success -> fetched
+            is CoreResult.Failure -> if (cached != null && fetched.error is CoreError.NetworkUnavailable) {
+                CoreResult.Success(cached)
+            } else {
+                fetched
+            }
+        }
+    }
+
+    private suspend fun fetchAndCacheNoticia(
+        nav: SigaaNavigator,
+        frontEndIdTurma: String,
+        idNoticia: String,
+        ref: ParsedAvaNoticiaRef,
+    ): CoreResult<NoticiaTurmaAva> {
         val payload = when (val res = nav.postAvaForm(ref.formParams)) {
-            is CoreResult.Failure -> return@withAuthenticatedJsf res
+            is CoreResult.Failure -> return res
             is CoreResult.Success -> res.value
         }
 
         val parsed = when (val p = TurmaVirtualParser.parseAvaNoticiaCompleta(payload.decodeSigaaIso88591(), idNoticia)) {
-            is CoreResult.Failure -> return@withAuthenticatedJsf p
+            is CoreResult.Failure -> return p
             is CoreResult.Success -> p.value
         }
 
@@ -196,7 +259,17 @@ class TurmasRepositoryImpl(
                 )
             }
         }
-        CoreResult.Success(parsed.noticia)
+
+        cacheStore.put(
+            cacheKey = SnapshotCacheStore.Keys.turmaNoticia(frontEndIdTurma, idNoticia),
+            domain = SnapshotCacheStore.Domains.TURMAS,
+            origin = DataOrigin.REMOTE,
+            syncedAtEpochMillis = nav.nowMillis(),
+            value = parsed.noticia,
+            serializer = NoticiaTurmaAvaDto.serializer(),
+            toDto = CacheMappers::toDto,
+        )
+        return CoreResult.Success(parsed.noticia)
     }
 
     override fun observeFrequencia(frontEndIdTurma: String): Flow<SyncedData<MapaFrequenciaTurma>?> =
@@ -387,6 +460,7 @@ class TurmasRepositoryImpl(
                 CoreError.UnavailableForProfile("Menu AVA", "Opcao '$menuLabel' indisponivel nesta turma."),
             )
 
+        currentAvaHomeTurmaId = null
         val menuPayload = when (val res = nav.postAvaForm(menuParams)) {
             is CoreResult.Failure -> return@withAuthenticatedJsf res
             is CoreResult.Success -> res.value
@@ -438,6 +512,7 @@ class TurmasRepositoryImpl(
         }
 
         runtimeAvaCache[frontEndIdTurma] = parsedAva
+        currentAvaHomeTurmaId = frontEndIdTurma
         val now = nav.nowMillis()
         val detailChanged = cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.turmaDetalhe(frontEndIdTurma),

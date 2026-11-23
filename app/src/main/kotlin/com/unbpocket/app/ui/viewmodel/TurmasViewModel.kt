@@ -73,6 +73,7 @@ data class TurmaVirtualUiState(
     val expandedNoticiaId: String? = null,
     val fullNoticiaById: Map<String, NoticiaTurmaAva> = emptyMap(),
     val loadingNoticiaId: String? = null,
+    val loadingNoticiaIds: Set<String> = emptySet(),
     val downloadingItemId: String? = null,
     val downloadedFileEvent: ArquivoBaixado? = null,
     val isResolvingCache: Boolean = false,
@@ -95,7 +96,7 @@ private data class TurmaDetailControl(
     val selectedDetailTab: TurmaDetailTab = TurmaDetailTab.TOPICOS,
     val expandedNoticiaId: String? = null,
     val fullNoticiaById: Map<String, NoticiaTurmaAva> = emptyMap(),
-    val loadingNoticiaId: String? = null,
+    val loadingNoticiaIds: Set<String> = emptySet(),
     val downloadingItemId: String? = null,
     val downloadedFileEvent: ArquivoBaixado? = null,
     val isResolvingCache: Boolean = false,
@@ -215,7 +216,8 @@ class TurmasViewModel(
             tarefas = tarefas,
             expandedNoticiaId = ctrl.expandedNoticiaId,
             fullNoticiaById = ctrl.fullNoticiaById,
-            loadingNoticiaId = ctrl.loadingNoticiaId,
+            loadingNoticiaId = ctrl.loadingNoticiaIds.lastOrNull(),
+            loadingNoticiaIds = ctrl.loadingNoticiaIds,
             downloadingItemId = ctrl.downloadingItemId,
             downloadedFileEvent = ctrl.downloadedFileEvent,
             isRefreshingDetail = ctrl.isRefreshingDetail,
@@ -375,22 +377,56 @@ class TurmasViewModel(
             detailControl.update { it.copy(expandedNoticiaId = null) }
             return
         }
-        detailControl.update { it.copy(expandedNoticiaId = idNoticia) }
-        if (detailControl.value.fullNoticiaById.containsKey(idNoticia)) return
+        if (detailControl.value.fullNoticiaById.containsKey(idNoticia)) {
+            detailControl.update { it.copy(expandedNoticiaId = idNoticia) }
+            return
+        }
+
+        val currentDetalhe = detailUiState.value.detalhe?.value
+        val latest = currentDetalhe?.ultimaNoticia
+        val resumo = currentDetalhe?.historicoNoticiasResumo?.firstOrNull { it.idNoticia == idNoticia }
+        if (latest != null &&
+            resumo != null &&
+            latest.titulo.isNotBlank() &&
+            latest.titulo.equals(resumo.titulo, ignoreCase = true) &&
+            latest.dataHoraTexto.isNotBlank() &&
+            latest.dataHoraTexto == resumo.dataHoraTexto
+        ) {
+            detailControl.update { state ->
+                state.copy(
+                    expandedNoticiaId = idNoticia,
+                    fullNoticiaById = state.fullNoticiaById + (idNoticia to latest.copy(idNoticia = idNoticia)),
+                )
+            }
+            return
+        }
+
+        if (idNoticia in detailControl.value.loadingNoticiaIds) {
+            detailControl.update { it.copy(expandedNoticiaId = idNoticia) }
+            return
+        }
+
+        detailControl.update { state ->
+            state.copy(
+                expandedNoticiaId = idNoticia,
+                loadingNoticiaIds = state.loadingNoticiaIds + idNoticia,
+                detailError = null,
+            )
+        }
 
         viewModelScope.launch {
-            detailControl.update { it.copy(loadingNoticiaId = idNoticia) }
             when (val res = core.turmas.getNoticiaCompleta(idTurma, idNoticia)) {
                 is CoreResult.Success -> detailControl.update { state ->
                     state.copy(
-                        loadingNoticiaId = null,
+                        loadingNoticiaIds = state.loadingNoticiaIds - idNoticia,
                         fullNoticiaById = state.fullNoticiaById + (idNoticia to res.value),
                     )
                 }
 
                 is CoreResult.Failure -> detailControl.update { state ->
                     state.copy(
-                        loadingNoticiaId = null,
+                        loadingNoticiaIds = state.loadingNoticiaIds - idNoticia,
+                        expandedNoticiaId = if (state.expandedNoticiaId == idNoticia) null else state.expandedNoticiaId,
                         detailError = CoreErrorMapper.toUiError(res.error),
                     )
                 }
