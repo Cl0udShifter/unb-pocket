@@ -168,4 +168,31 @@ class DiscentePortalParserTest {
         assertEquals(3, saldo.refeicoesRestantes?.almocosOuJantaresRestantes)
         assertEquals(5, saldo.refeicoesRestantes?.cafesRestantes)
     }
+
+    @Test
+    fun preservesMultipleFeedEntriesPublishedOnSameDayAndTitle() {
+        val htmlWithRepeatedNotice = """
+            <html><body>
+              <div id="atualizacoes-turma">
+                <div class="rotator">
+                  <table>
+                    <tr><td>16/10/2026 - <a onclick="jsfcljs(document.getElementById('f'),{'idTurma':'1616625'},'')">ELETRONICA EXPERIMENTAL (2026.2)</a></td></tr>
+                    <tr><td>Nova Notícia: Experimento 07 - Roteiro</td></tr>
+                  </table>
+                  <table>
+                    <tr><td>16/10/2026 - <a onclick="jsfcljs(document.getElementById('f'),{'idTurma':'1616625'},'')">ELETRONICA EXPERIMENTAL (2026.2)</a></td></tr>
+                    <tr><td>Nova Notícia: Experimento 07 - Roteiro</td></tr>
+                  </table>
+                </div>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val feed = DiscentePortalParser.parseAtualizacoesFeed(htmlWithRepeatedNotice)
+        assertEquals(2, feed.size)
+        assertEquals(feed[0], feed[1])
+        assertEquals("1616625", feed[0].idTurma)
+        assertEquals("16/10/2026", feed[0].dataTexto)
+        assertEquals("Nova Notícia: Experimento 07 - Roteiro", feed[0].tituloNoticia)
+    }
 }

@@ -21,7 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Grading
@@ -216,10 +216,10 @@ fun TurmaVirtualScreen(
                                     )
                                 }
                             } else {
-                                items(
+                                itemsIndexed(
                                     items = detalhe.topicosAula,
-                                    key = { "topic_${it.index}_${it.titulo}" },
-                                ) { topico ->
+                                    key = { index, it -> "topic_${index}_${it.index}_${it.titulo}" },
+                                ) { _, topico ->
                                     TopicoCard(
                                         topico = topico,
                                         downloadingItemId = uiState.downloadingItemId,
@@ -277,10 +277,10 @@ fun TurmaVirtualScreen(
                                     )
                                 }
 
-                                items(
+                                itemsIndexed(
                                     items = detalhe.historicoNoticiasResumo,
-                                    key = { it.idNoticia },
-                                ) { resumo ->
+                                    key = { index, it -> "hist_${index}_${it.idNoticia}" },
+                                ) { _, resumo ->
                                     val expanded = uiState.expandedNoticiaId == resumo.idNoticia
                                     val fullNoticia = uiState.fullNoticiaById[resumo.idNoticia]
                                     val isLoadingThis = uiState.loadingNoticiaId == resumo.idNoticia
@@ -401,10 +401,10 @@ fun TurmaVirtualScreen(
                                         color = colors.muted,
                                     )
                                 }
-                                items(
+                                itemsIndexed(
                                     items = freq.registrosDiarios,
-                                    key = { "${it.dataTexto}_${it.situacaoTexto}" },
-                                ) { reg ->
+                                    key = { index, it -> "freq_${index}_${it.dataTexto}_${it.situacaoTexto}" },
+                                ) { _, reg ->
                                     EditorialCard {
                                         Row(
                                             modifier = Modifier.fillMaxWidth(),
@@ -479,10 +479,10 @@ fun TurmaVirtualScreen(
                                     InfoCalloutRow(text = "Nenhuma avaliação marcada no SIGAA.")
                                 }
                             } else {
-                                items(
+                                itemsIndexed(
                                     items = avaliacoes,
-                                    key = { "aval_${it.dataTexto}_${it.descricao}" },
-                                ) { aval ->
+                                    key = { index, it -> "aval_${index}_${it.dataTexto}_${it.descricao}" },
+                                ) { _, aval ->
                                     AvaliacaoCard(aval = aval)
                                 }
                             }
@@ -514,10 +514,10 @@ fun TurmaVirtualScreen(
                                     InfoCalloutRow(text = "Nenhuma tarefa cadastrada no AVA.")
                                 }
                             } else {
-                                items(
+                                itemsIndexed(
                                     items = tarefas,
-                                    key = { "tarefa_${it.titulo}_${it.periodoEntrega}" },
-                                ) { tarefa ->
+                                    key = { index, it -> "tarefa_${index}_${it.titulo}_${it.periodoEntrega}" },
+                                ) { _, tarefa ->
                                     TarefaCard(tarefa = tarefa)
                                 }
                             }

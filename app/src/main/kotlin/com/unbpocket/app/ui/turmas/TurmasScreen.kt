@@ -22,7 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -320,10 +320,10 @@ fun TurmasScreen(
                                     )
                                 }
 
-                                items(
+                                itemsIndexed(
                                     items = dayClasses,
-                                    key = { "${it.turma.frontEndIdTurma}_${it.startMinutes}" },
-                                ) { scheduled ->
+                                    key = { index, it -> "day_${index}_${it.turma.frontEndIdTurma}_${it.startMinutes}" },
+                                ) { _, scheduled ->
                                     ScheduledClassRowCard(
                                         scheduled = scheduled,
                                         isExpanded = uiState.expandedClassTurmaId == scheduled.turma.frontEndIdTurma,
@@ -355,10 +355,10 @@ fun TurmasScreen(
                                 )
                             }
                         } else {
-                            items(
+                            itemsIndexed(
                                 items = turmasList,
-                                key = { it.frontEndIdTurma },
-                            ) { turma ->
+                                key = { index, it -> "turma_${index}_${it.frontEndIdTurma}" },
+                            ) { _, turma ->
                                 SemesterTurmaCard(
                                     turma = turma,
                                     onClick = { onOpenTurma(turma.frontEndIdTurma) },
@@ -383,10 +383,10 @@ fun TurmasScreen(
                                 )
                             }
                         } else {
-                            items(
+                            itemsIndexed(
                                 items = atualizacoes,
-                                key = { "${it.idTurma}_${it.dataTexto}_${it.tituloNoticia}" },
-                            ) { update ->
+                                key = { index, item -> turmaFeedItemKey(index, item) },
+                            ) { _, update ->
                                 TurmaFeedUpdateCard(
                                     item = update,
                                     onClick = {
@@ -1028,3 +1028,8 @@ private fun FeedUpdateSkeletonCard() {
         )
     }
 }
+
+internal fun turmaFeedItemKey(
+    index: Int,
+    item: AtualizacaoTurmaFeed,
+): String = "feed_${index}_${item.idTurma}_${item.dataTexto}_${item.tituloNoticia}"
