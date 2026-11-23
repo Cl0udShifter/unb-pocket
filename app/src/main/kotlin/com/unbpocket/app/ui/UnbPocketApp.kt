@@ -180,51 +180,63 @@ fun UnbPocketApp(
         }
     }
 
-    val flipModifier = modifier
-        .fillMaxSize()
-        .graphicsLayer {
-            rotationY = if (showingQrPassFace) qrFlipRotation - 180f else qrFlipRotation
-            cameraDistance = 14f * density
+    Box(modifier = modifier.fillMaxSize()) {
+        // Keep the main app composed while the QR pass is shown so flipping back never
+        // triggers a heavy mid-animation NavHost/LazyColumn recomposition at 90 degrees.
+        val appFlipModifier = Modifier
+            .fillMaxSize()
+            .graphicsLayer {
+                alpha = if (showingQrPassFace) 0f else 1f
+                rotationY = qrFlipRotation
+                cameraDistance = 14f * density
+            }
+
+        if (isExpandedWidth) {
+            Row(
+                modifier = appFlipModifier.background(UnbTheme.colors.ground),
+            ) {
+                if (currentTopDestination != null) {
+                    UnbNavigationRail(
+                        currentDestination = currentTopDestination,
+                        onSelect = navigateToTopDestination,
+                    )
+                }
+                navContent(Modifier.weight(1f))
+            }
+        } else {
+            Box(
+                modifier = appFlipModifier.background(UnbTheme.colors.ground),
+            ) {
+                navContent(Modifier.fillMaxSize())
+                if (currentTopDestination != null) {
+                    CapsuleBottomBar(
+                        currentDestination = currentTopDestination,
+                        onSelect = navigateToTopDestination,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                    )
+                }
+            }
         }
 
-    if (showingQrPassFace) {
-        val isPreloadingCarteirinha = authUiState.preloadProgress.phase == PreloadPhase.RUNNING_BACKGROUND &&
-            authUiState.preloadProgress.currentTarget == "Carteirinha Estudantil"
-        val isLoadingQr = discenteUiState.isRefreshingCarteirinha ||
-            (discenteUiState.carteirinha?.value == null &&
-                (isPreloadingCarteirinha || !discenteUiState.hasResolvedCarteirinhaCache))
+        if (showingQrPassFace) {
+            val isPreloadingCarteirinha = authUiState.preloadProgress.phase == PreloadPhase.RUNNING_BACKGROUND &&
+                authUiState.preloadProgress.currentTarget == "Carteirinha Estudantil"
+            val isLoadingQr = discenteUiState.isRefreshingCarteirinha ||
+                (discenteUiState.carteirinha?.value == null &&
+                    (isPreloadingCarteirinha || !discenteUiState.hasResolvedCarteirinhaCache))
 
-        RuFullScreenQrPass(
-            carteirinha = discenteUiState.carteirinha?.value,
-            isLoading = isLoadingQr,
-            hasError = discenteUiState.carteirinhaError != null,
-            onDismiss = { discenteViewModel.resetQrCardToBalance() },
-            modifier = flipModifier,
-        )
-    } else if (isExpandedWidth) {
-        Row(
-            modifier = flipModifier.background(UnbTheme.colors.ground),
-        ) {
-            if (currentTopDestination != null) {
-                UnbNavigationRail(
-                    currentDestination = currentTopDestination,
-                    onSelect = navigateToTopDestination,
-                )
-            }
-            navContent(Modifier.weight(1f))
-        }
-    } else {
-        Box(
-            modifier = flipModifier.background(UnbTheme.colors.ground),
-        ) {
-            navContent(Modifier.fillMaxSize())
-            if (currentTopDestination != null) {
-                CapsuleBottomBar(
-                    currentDestination = currentTopDestination,
-                    onSelect = navigateToTopDestination,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
-            }
+            RuFullScreenQrPass(
+                carteirinha = discenteUiState.carteirinha?.value,
+                isLoading = isLoadingQr,
+                hasError = discenteUiState.carteirinhaError != null,
+                onDismiss = { discenteViewModel.resetQrCardToBalance() },
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer {
+                        rotationY = qrFlipRotation - 180f
+                        cameraDistance = 14f * density
+                    },
+            )
         }
     }
 
