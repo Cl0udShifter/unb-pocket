@@ -243,7 +243,7 @@ fun DiscenteScreen(
                     item(key = "identity_card") {
                         StudentIdentityCard(
                             resumo = resumo,
-                            fotoLocalPath = carteirinha?.foto3x4LocalPath,
+                            fotoLocalPath = resumo.perfil.fotoLocalPath,
                         )
                     }
 

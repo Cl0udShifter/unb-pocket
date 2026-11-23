@@ -86,6 +86,7 @@ class DiscentePortalParserTest {
         assertEquals("331956", resumo.perfil.idDiscente)
         assertEquals("190026308", resumo.perfil.matricula)
         assertEquals("414330", resumo.perfil.idCursoPortalPublico)
+        assertEquals("https://arquivos.unb.br/arquivos/foto.png", resumo.perfil.fotoUrl)
         assertEquals("Conhecimento em lingua inglesa e redes.", resumo.perfil.bioPerfil)
         assertEquals(3.2102, resumo.indices.ira ?: 0.0, 0.0001)
         assertEquals(3.4563, resumo.indices.mp ?: 0.0, 0.0001)
@@ -231,5 +232,29 @@ class DiscentePortalParserTest {
         val indices = (result as CoreResult.Success).value.indices
         assertEquals(74.0, indices.percentualIntegralizadoExato ?: 0.0, 0.01)
         assertEquals("74% Integralizado", indices.percentualIntegralizadoTexto)
+    }
+
+    @Test
+    fun normalizesProtocolRelativeProfilePhotoAndRejectsPlaceholders() {
+        val protocolRelativeHtml = """
+            <html><body>
+              <div id="info-usuario"><p class="usuario"><span>Daniel</span></p></div>
+              <form id="menu:form_menu_discente"><input type="hidden" name="id" value="331956" /></form>
+              <div id="perfil-docente">
+                <div class="foto"><img src="//arquivos.unb.br/arquivos/12345/foto.jpg" /></div>
+                <p class="info-docente"><span class="nome"><b>Daniel Junior</b></span></p>
+              </div>
+              <div id="agenda-docente"><table><tr><td>Matrícula:</td><td>190026308</td></tr></table></div>
+            </body></html>
+        """.trimIndent()
+        val res1 = (DiscentePortalParser.parseDiscenteResumo(protocolRelativeHtml) as CoreResult.Success).value
+        assertEquals("https://arquivos.unb.br/arquivos/12345/foto.jpg", res1.perfil.fotoUrl)
+
+        val placeholderHtml = protocolRelativeHtml.replace(
+            "//arquivos.unb.br/arquivos/12345/foto.jpg",
+            "/sigaa/img/sem_foto.png",
+        )
+        val res2 = (DiscentePortalParser.parseDiscenteResumo(placeholderHtml) as CoreResult.Success).value
+        assertNull(res2.perfil.fotoUrl)
     }
 }

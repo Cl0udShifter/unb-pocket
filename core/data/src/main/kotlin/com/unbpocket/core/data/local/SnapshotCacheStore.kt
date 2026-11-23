@@ -374,6 +374,7 @@ data class PerfilDiscenteDto(
     val status: String,
     val emailTruncado: String? = null,
     val idCursoPortalPublico: String? = null,
+    val fotoLocalPath: String? = null,
 )
 
 @Serializable
@@ -689,6 +690,7 @@ internal object CacheMappers {
             m.perfil.status,
             m.perfil.emailTruncado,
             m.perfil.idCursoPortalPublico,
+            m.perfil.fotoLocalPath,
         ),
         indices = IndicesIntegralizacaoDto(
             m.indices.ira,
@@ -718,6 +720,7 @@ internal object CacheMappers {
             d.perfil.status,
             d.perfil.emailTruncado,
             d.perfil.idCursoPortalPublico,
+            d.perfil.fotoLocalPath,
         ),
         indices = IndicesIntegralizacao(
             d.indices.ira,

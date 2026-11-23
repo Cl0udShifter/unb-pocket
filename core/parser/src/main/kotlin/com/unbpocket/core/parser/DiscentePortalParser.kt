@@ -62,10 +62,16 @@ object DiscentePortalParser {
             select("span.nome").remove()
         }?.text()?.trim()?.takeIf { it.isNotEmpty() }
 
-        val fotoUrl = doc.selectFirst("#perfil-docente div.foto img")
+        val rawFotoSrc = (doc.selectFirst("#perfil-docente div.foto img") ?: doc.selectFirst("#perfil-docente .foto img"))
             ?.attr("src")
             ?.trim()
-            ?.takeIf { it.isNotEmpty() && !it.contains("no_picture", ignoreCase = true) }
+            ?.takeIf { src ->
+                src.isNotEmpty() &&
+                    !src.contains("no_picture", ignoreCase = true) &&
+                    !src.contains("sem_foto", ignoreCase = true) &&
+                    !src.contains("semfoto", ignoreCase = true)
+            }
+        val fotoUrl = rawFotoSrc?.let { if (it.startsWith("//")) "https:$it" else it }
 
         val idCursoPublico = publicCourseRegex.find(html)?.groupValues?.getOrNull(1)
 

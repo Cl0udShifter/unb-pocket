@@ -283,10 +283,11 @@ class SigaaNavigator internal constructor(
     }
 
     suspend fun getSigaaBinary(relativeOrAbsoluteUrl: String): CoreResult<HttpPayload> {
-        val targetUrl = if (relativeOrAbsoluteUrl.startsWith("http")) {
-            relativeOrAbsoluteUrl
-        } else {
-            "${endpoints.sigaaBaseUrl.trimEnd('/')}/${relativeOrAbsoluteUrl.trimStart('/')}"
+        val targetUrl = when {
+            relativeOrAbsoluteUrl.startsWith("http://", ignoreCase = true) ||
+                relativeOrAbsoluteUrl.startsWith("https://", ignoreCase = true) -> relativeOrAbsoluteUrl
+            relativeOrAbsoluteUrl.startsWith("//") -> "https:$relativeOrAbsoluteUrl"
+            else -> "${endpoints.sigaaBaseUrl.trimEnd('/')}/${relativeOrAbsoluteUrl.trimStart('/')}"
         }
         val payload = when (val res = transport.get(targetUrl)) {
             is CoreResult.Failure -> return res
@@ -306,9 +307,13 @@ class SigaaNavigator internal constructor(
     }
 
     private fun checkPayloadNotExpired(payload: HttpPayload): CoreResult<HttpPayload> {
-        if (!payload.isPdf()) {
+        if (payload.finalUrl.contains("/sso-server/login")) {
+            return CoreResult.Failure(CoreError.SessionExpired)
+        }
+        val isBinary = payload.isPdf() || payload.contentType?.startsWith("image/", ignoreCase = true) == true
+        if (!isBinary) {
             val html = payload.decodeSigaaIso88591()
-            if (payload.finalUrl.contains("/sso-server/login") || CasAndJsfParser.isCasLoginPage(html)) {
+            if (CasAndJsfParser.isCasLoginPage(html)) {
                 return CoreResult.Failure(CoreError.SessionExpired)
             }
             val idDiscente = CasAndJsfParser.extractDiscenteId(html)

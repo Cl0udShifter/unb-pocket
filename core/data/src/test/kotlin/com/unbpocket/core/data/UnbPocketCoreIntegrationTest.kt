@@ -665,6 +665,7 @@ class UnbPocketCoreIntegrationTest {
 
         // Confirma regra de filtro de subdiretorios usada pelo DownloadedFileStore no Android
         assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("carteirinha"))
+        assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("discente"))
         assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("documentos"))
         assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("materiais_$frontEndId"))
         assertFalse(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("pdfs"))
@@ -977,6 +978,101 @@ class UnbPocketCoreIntegrationTest {
         val htmlErr = core.turmas.downloadMaterial(frontEndId, "HASH_ZIP_1")
         assertTrue(htmlErr is CoreResult.Failure && htmlErr.error is CoreError.ParseError)
         assertEquals(1, discentePosts.get())
+    }
+
+    @Test
+    fun downloadsAndCachesSigaaProfilePhotoWithNonFatalFallback() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        val fotoHits = AtomicInteger(0)
+        var currentPhotoUrl = "/arquivos/foto_perfil.png"
+        var photoBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 1, 2, 3, 4)
+        var photoStatus = 200
+        var photoContentType = "image/png"
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/verPortalDiscente.do")
+                    path.startsWith("/sigaa/verPortalDiscente.do") -> {
+                        val html = discenteHomeHtml().replace(
+                            "<div id=\"perfil-docente\">",
+                            "<div id=\"perfil-docente\"><div class=\"foto\"><img src=\"$currentPhotoUrl\" /></div>",
+                        )
+                        latin1Response(html)
+                    }
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formExibirExtrato") -> latin1Response(extratoRuHtml())
+                            body.contains("atestadoMatriculaUnb") -> latin1Response(atestadoHtml())
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+                    path.startsWith("/arquivos/") -> {
+                        fotoHits.incrementAndGet()
+                        if (photoStatus != 200) {
+                            MockResponse().setResponseCode(photoStatus)
+                        } else {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .setHeader("Content-Type", photoContentType)
+                                .setBody(Buffer().write(photoBytes))
+                        }
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        assertTrue(core.syncPortalHome(includeSaldoRu = true) is CoreResult.Success)
+
+        val firstPerfil = core.discente.observeDiscenteResumo().first()?.value?.perfil
+        assertNotNull(firstPerfil?.fotoLocalPath)
+        val firstPath = firstPerfil!!.fotoLocalPath!!
+        assertTrue(File(firstPath).exists())
+        assertTrue(File(firstPath).readBytes().contentEquals(photoBytes))
+        assertEquals(1, fotoHits.get())
+
+        // 2. Segunda sincronizacao na home com mesma fotoUrl reaproveita arquivo local sem rebaixar
+        assertTrue(core.syncPortalHome(includeSaldoRu = true) is CoreResult.Success)
+        assertEquals(1, fotoHits.get())
+        assertEquals(firstPath, core.discente.observeDiscenteResumo().first()?.value?.perfil?.fotoLocalPath)
+
+        // 3. Refresh manual rebaixa a imagem na mesma URL e substitui quando o conteudo muda
+        photoBytes = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 9, 8, 7, 6)
+        val manualRefreshed = (core.discente.refreshDiscenteResumo() as CoreResult.Success).value
+        assertEquals(2, fotoHits.get())
+        val updatedPath = manualRefreshed.perfil.fotoLocalPath
+        assertNotNull(updatedPath)
+        assertTrue(updatedPath != firstPath)
+        assertFalse(File(firstPath).exists())
+        assertTrue(File(updatedPath!!).exists())
+
+        // 4. Falha HTTP ou payload HTML nao quebra o perfil e retorna fotoLocalPath nulo para novas URLs (fallback de iniciais)
+        currentPhotoUrl = "/arquivos/foto_nova_falha.png"
+        photoStatus = 404
+        val withBrokenPhoto = (core.discente.refreshDiscenteResumo() as CoreResult.Success).value
+        assertNull(withBrokenPhoto.perfil.fotoLocalPath)
+
+        // 5. Payload text/html 200 tambem e rejeitado de forma nao-fatal
+        currentPhotoUrl = "/arquivos/foto_html.png"
+        photoStatus = 200
+        photoContentType = "text/html; charset=ISO-8859-1"
+        photoBytes = "<html>Erro</html>".toByteArray()
+        val withHtmlPhoto = (core.discente.refreshDiscenteResumo() as CoreResult.Success).value
+        assertNull(withHtmlPhoto.perfil.fotoLocalPath)
+
+        // 6. Logout limpa foto do discente do disco
+        assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
+        assertFalse(File(updatedPath).exists())
     }
 
     private fun redirect(location: String) =

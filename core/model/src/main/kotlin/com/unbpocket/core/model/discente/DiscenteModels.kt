@@ -15,6 +15,7 @@ data class PerfilDiscente(
     val status: String,
     val emailTruncado: String?,
     val idCursoPortalPublico: String?,
+    val fotoLocalPath: String? = null,
 )
 
 data class IndicesIntegralizacao(

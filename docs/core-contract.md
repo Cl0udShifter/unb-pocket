@@ -129,7 +129,8 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
 * `ArquivoBaixado(nomeArquivo: String, mimeType: String, localFilePath: String, tamanhoBytes: Long, downloadPublicoInfo: String? = null)`
 
 ### 3.4 Discente, Carteirinha e Documentos (`com.unbpocket.core.model.discente`)
-* `PerfilDiscente(idDiscente: String, matricula: String, nomeCompleto: String, nomeAbreviado: String, bioPerfil: String?, fotoUrl: String?, semestreAtual: String, semestreEntrada: String, unidadeDepartamento: String, curso: String, nivel: String, status: String, emailTruncado: String?, idCursoPortalPublico: String?)`
+* `PerfilDiscente(idDiscente: String, matricula: String, nomeCompleto: String, nomeAbreviado: String, bioPerfil: String?, fotoUrl: String?, semestreAtual: String, semestreEntrada: String, unidadeDepartamento: String, curso: String, nivel: String, status: String, emailTruncado: String?, idCursoPortalPublico: String?, fotoLocalPath: String? = null)`
+  * `fotoLocalPath` guarda o caminho local em cache da foto de perfil do SIGAA (`#perfil-docente .foto img`, baixada com `forceDownload` apenas quando `fotoUrl` muda, quando o arquivo local esta ausente ou no refresh manual `refreshDiscenteResumo`), permanecendo `null` de forma nao-fatal se a conta nao tiver foto (`no_picture`) ou o download falhar para que a UI exiba as iniciais como fallback.
 * `IndicesIntegralizacao(ira: Double?, mp: Double?, chObrigatoriaPendente: Int?, chOptativaPendente: Int?, chComplementarPendente: Int?, chTotalCurriculo: Int?, percentualIntegralizadoExato: Double?, percentualIntegralizadoTexto: String?)`
 * `DiscenteResumo(perfil: PerfilDiscente, indices: IndicesIntegralizacao)`
 * `CarteirinhaEstudantil(nomeCompleto: String, matricula: String, cpfTexto: String?, curso: String, nivel: String, validadeTexto: String, qrPayload16Digitos: String, qrImageLocalPath: String, foto3x4LocalPath: String?, pdfLocalPath: String)`

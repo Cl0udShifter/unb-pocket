@@ -169,6 +169,7 @@ class DownloadedFileStore(
 
         fun isSigaaUserDir(name: String): Boolean =
             name == "carteirinha" ||
+                name == "discente" ||
                 name == "documentos" ||
                 name == "materiais" ||
                 name.startsWith("materiais_")

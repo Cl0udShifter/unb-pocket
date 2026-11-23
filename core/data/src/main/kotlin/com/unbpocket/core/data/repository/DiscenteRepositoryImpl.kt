@@ -17,13 +17,16 @@ import com.unbpocket.core.model.discente.BoletimSemestre
 import com.unbpocket.core.model.discente.CarteirinhaEstudantil
 import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.discente.DocumentoOficialEmitido
+import com.unbpocket.core.model.discente.PerfilDiscente
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
+import com.unbpocket.core.network.HttpPayload
 import com.unbpocket.core.network.JsfPriority
 import com.unbpocket.core.parser.DiscenteDocumentosParser
 import com.unbpocket.core.parser.DiscentePortalParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.File
+import java.security.MessageDigest
 
 /**
  * Repositorio da Tela do Discente: perfil, IRA/MP, integralizacao,
@@ -48,7 +51,7 @@ class DiscenteRepositoryImpl(
                 is CoreResult.Failure -> return@withAuthenticatedJsf home
                 is CoreResult.Success -> home.value
             }
-            when (val res = persistResumoFromHomeHtmlWithDiff(nav, homeHtml)) {
+            when (val res = persistResumoFromHomeHtmlWithDiff(nav, homeHtml, forceDownloadFoto = true)) {
                 is CoreResult.Failure -> res
                 is CoreResult.Success -> CoreResult.Success(res.value.first)
             }
@@ -57,24 +60,108 @@ class DiscenteRepositoryImpl(
     internal suspend fun persistResumoFromHomeHtmlWithDiff(
         nav: SigaaNavigator,
         homeHtml: String,
+        forceDownloadFoto: Boolean = false,
     ): CoreResult<Pair<DiscenteResumo, Boolean>> {
         val parsed = DiscentePortalParser.parseDiscenteResumo(homeHtml)
         return when (parsed) {
             is CoreResult.Failure -> parsed
             is CoreResult.Success -> {
+                val existingCached = cacheStore.get(
+                    cacheKey = SnapshotCacheStore.Keys.DISCENTE_RESUMO,
+                    serializer = DiscenteResumoDto.serializer(),
+                    fromDto = CacheMappers::fromDto,
+                )?.value
+
+                val resolvedFotoPath = resolveProfileFotoLocalPath(
+                    nav = nav,
+                    fotoUrl = parsed.value.perfil.fotoUrl,
+                    cachedPerfil = existingCached?.perfil,
+                    forceDownload = forceDownloadFoto,
+                )
+
+                val finalResumo = parsed.value.copy(
+                    perfil = parsed.value.perfil.copy(fotoLocalPath = resolvedFotoPath),
+                )
+
                 val changed = cacheStore.put(
                     cacheKey = SnapshotCacheStore.Keys.DISCENTE_RESUMO,
                     domain = SnapshotCacheStore.Domains.DISCENTE,
                     origin = DataOrigin.REMOTE,
                     syncedAtEpochMillis = nav.nowMillis(),
-                    value = parsed.value,
+                    value = finalResumo,
                     serializer = DiscenteResumoDto.serializer(),
                     toDto = CacheMappers::toDto,
                 )
-                CoreResult.Success(parsed.value to changed)
+                CoreResult.Success(finalResumo to changed)
             }
         }
     }
+
+    private suspend fun resolveProfileFotoLocalPath(
+        nav: SigaaNavigator,
+        fotoUrl: String?,
+        cachedPerfil: PerfilDiscente?,
+        forceDownload: Boolean,
+    ): String? {
+        if (fotoUrl.isNullOrBlank()) return null
+
+        val reusableCachedPath = cachedPerfil
+            ?.takeIf { it.fotoUrl == fotoUrl }
+            ?.fotoLocalPath
+            ?.takeIf { path -> path.isNotBlank() && File(path).exists() }
+
+        if (!forceDownload && reusableCachedPath != null) {
+            return reusableCachedPath
+        }
+
+        val payload = when (val res = nav.getSigaaBinary(fotoUrl)) {
+            is CoreResult.Failure -> return reusableCachedPath
+            is CoreResult.Success -> res.value
+        }
+
+        if (!isValidImagePayload(payload)) {
+            return reusableCachedPath
+        }
+
+        val ext = resolveImageExtension(payload.contentType, fotoUrl)
+        val hash = shortSha256(payload.bytes)
+        val fileName = "perfil_foto_$hash.$ext"
+
+        return runCatching {
+            val savedFile = fileStore.saveBytes("discente", fileName, payload.bytes)
+            if (reusableCachedPath != null && reusableCachedPath != savedFile.absolutePath) {
+                runCatching { File(reusableCachedPath).delete() }
+            }
+            savedFile.absolutePath
+        }.getOrElse { reusableCachedPath }
+    }
+
+    private fun isValidImagePayload(payload: HttpPayload): Boolean {
+        if (payload.bytes.isEmpty() || payload.isPdf()) return false
+        val mime = payload.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        if (mime.contains("text/html") || mime.contains("application/json")) return false
+        return mime.isEmpty() || mime.startsWith("image/") || mime == "application/octet-stream"
+    }
+
+    private fun resolveImageExtension(contentType: String?, fotoUrl: String): String {
+        val mime = contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
+        return when {
+            mime == "image/png" -> "png"
+            mime == "image/webp" -> "webp"
+            mime == "image/gif" -> "gif"
+            mime == "image/jpeg" || mime == "image/jpg" -> "jpg"
+            else -> {
+                val urlExt = fotoUrl.substringBefore('?').substringAfterLast('.', "").lowercase()
+                urlExt.takeIf { it in setOf("png", "jpg", "jpeg", "webp", "gif") } ?: "jpg"
+            }
+        }
+    }
+
+    private fun shortSha256(bytes: ByteArray): String =
+        MessageDigest.getInstance("SHA-256")
+            .digest(bytes)
+            .take(6)
+            .joinToString("") { "%02x".format(it) }
 
     override fun observeCarteirinha(): Flow<SyncedData<CarteirinhaEstudantil>?> =
         cacheStore.observe(
