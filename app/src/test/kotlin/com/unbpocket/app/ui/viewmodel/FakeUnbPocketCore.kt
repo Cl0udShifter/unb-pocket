@@ -228,6 +228,7 @@ class FakeTurmasRepository : TurmasRepository {
     var refreshDetalheCalls = 0
     var refreshFrequenciaCalls = 0
     var refreshNotasCalls = 0
+    var nextRefreshSemestreResult: CoreResult<List<TurmaResumo>>? = null
     var nextRefreshDetalheResult: CoreResult<TurmaDetalheAva>? = null
     var downloadedMaterialResult: CoreResult<ArquivoBaixado> = CoreResult.Success(
         ArquivoBaixado("slides.pdf", "application/pdf", "/tmp/slides.pdf", 120L),
@@ -236,7 +237,7 @@ class FakeTurmasRepository : TurmasRepository {
     override fun observeTurmasSemestre(): Flow<SyncedData<List<TurmaResumo>>?> = turmas
     override fun observeAtualizacoesFeed(): Flow<SyncedData<List<AtualizacaoTurmaFeed>>?> = atualizacoes
     override suspend fun refreshTurmasSemestre(enriquecerViaAtestado: Boolean): CoreResult<List<TurmaResumo>> =
-        CoreResult.Success(turmas.value?.value.orEmpty())
+        nextRefreshSemestreResult ?: CoreResult.Success(turmas.value?.value.orEmpty())
 
     override fun observeTurmaDetalhe(frontEndIdTurma: String): Flow<SyncedData<TurmaDetalheAva>?> = detalhe
     override suspend fun refreshTurmaDetalhe(frontEndIdTurma: String): CoreResult<TurmaDetalheAva> {
@@ -284,6 +285,8 @@ class FakeDiscenteRepository : DiscenteRepository {
 
     val emittedRequestedTypes = mutableListOf<TipoDocumentoOficial>()
     var refreshCarteirinhaCalls = 0
+    var nextRefreshCarteirinhaResult: CoreResult<CarteirinhaEstudantil>? = null
+    var nextRefreshBoletimResult: CoreResult<List<BoletimSemestre>>? = null
 
     override fun observeDiscenteResumo(): Flow<SyncedData<DiscenteResumo>?> = resumo
     override suspend fun refreshDiscenteResumo(): CoreResult<DiscenteResumo> =
@@ -293,6 +296,7 @@ class FakeDiscenteRepository : DiscenteRepository {
     override fun observeCarteirinha(): Flow<SyncedData<CarteirinhaEstudantil>?> = carteirinha
     override suspend fun refreshCarteirinha(force: Boolean): CoreResult<CarteirinhaEstudantil> {
         refreshCarteirinhaCalls++
+        nextRefreshCarteirinhaResult?.let { return it }
         val item = CarteirinhaEstudantil(
             nomeCompleto = "Estudante UnB",
             matricula = "231012345",
@@ -311,7 +315,7 @@ class FakeDiscenteRepository : DiscenteRepository {
 
     override fun observeBoletimGeral(): Flow<SyncedData<List<BoletimSemestre>>?> = boletim
     override suspend fun refreshBoletimGeral(): CoreResult<List<BoletimSemestre>> =
-        CoreResult.Success(boletim.value?.value.orEmpty())
+        nextRefreshBoletimResult ?: CoreResult.Success(boletim.value?.value.orEmpty())
 
     override fun observeDocumentosEmitidos(): Flow<List<DocumentoOficialEmitido>> = docs
     override suspend fun emitirDocumentoOficial(tipo: TipoDocumentoOficial): CoreResult<DocumentoOficialEmitido> {

@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unbpocket.app.ui.common.CoreErrorMapper
 import com.unbpocket.app.ui.common.UiErrorBanner
+import com.unbpocket.app.ui.common.withoutStaleAuth
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.SyncedData
@@ -119,16 +120,33 @@ class DiscenteViewModel(
             isRefreshingBoletim = ctrl.isRefreshingBoletim,
             emittingDocumentoTipo = ctrl.emittingDocumentoTipo,
             lastEmittedDocumentoEvent = ctrl.lastEmittedDocumentoEvent,
-            profileError = ctrl.profileError,
-            carteirinhaError = ctrl.carteirinhaError,
-            boletimError = ctrl.boletimError,
-            documentosError = ctrl.documentosError,
+            profileError = ctrl.profileError.withoutStaleAuth(auth),
+            carteirinhaError = ctrl.carteirinhaError.withoutStaleAuth(auth),
+            boletimError = ctrl.boletimError.withoutStaleAuth(auth),
+            documentosError = ctrl.documentosError.withoutStaleAuth(auth),
         )
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
         initialValue = DiscenteUiState(authState = core.auth.authState.value),
     )
+
+    init {
+        viewModelScope.launch {
+            core.auth.authState.collect { auth ->
+                if (auth is AuthState.Authenticated) {
+                    controlState.update { state ->
+                        state.copy(
+                            profileError = state.profileError.withoutStaleAuth(auth),
+                            carteirinhaError = state.carteirinhaError.withoutStaleAuth(auth),
+                            boletimError = state.boletimError.withoutStaleAuth(auth),
+                            documentosError = state.documentosError.withoutStaleAuth(auth),
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     fun toggleQrCardFace() {
         val nextFlipped = !controlState.value.isFlippedToQr

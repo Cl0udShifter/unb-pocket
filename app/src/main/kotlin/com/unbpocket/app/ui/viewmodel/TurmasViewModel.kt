@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.unbpocket.app.ui.common.CoreErrorMapper
 import com.unbpocket.app.ui.common.Formatters
 import com.unbpocket.app.ui.common.UiErrorBanner
+import com.unbpocket.app.ui.common.withoutStaleAuth
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.SyncedData
@@ -116,6 +117,21 @@ class TurmasViewModel(
             .map { true to it }
             .onStart { emit(false to null) }
 
+    init {
+        viewModelScope.launch {
+            core.auth.authState.collect { auth ->
+                if (auth is AuthState.Authenticated) {
+                    listControl.update { state ->
+                        state.copy(listError = state.listError.withoutStaleAuth(auth))
+                    }
+                    detailControl.update { state ->
+                        state.copy(detailError = state.detailError.withoutStaleAuth(auth))
+                    }
+                }
+            }
+        }
+    }
+
     val listUiState: StateFlow<TurmasUiState> = combine(
         core.auth.authState,
         resolvedTurmasFlow,
@@ -132,7 +148,7 @@ class TurmasViewModel(
             atualizacoes = atualizacoes,
             hasResolvedInitialCache = hasResolvedCache,
             isRefreshingList = ctrl.isRefreshingList,
-            listError = ctrl.listError,
+            listError = ctrl.listError.withoutStaleAuth(auth),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -169,6 +185,7 @@ class TurmasViewModel(
         avaliacoesFlow,
         tarefasFlow,
         detailControl,
+        core.auth.authState,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val id = values[0] as String?
@@ -185,6 +202,7 @@ class TurmasViewModel(
         @Suppress("UNCHECKED_CAST")
         val tarefas = values[6] as SyncedData<List<TarefaTurma>>?
         val ctrl = values[7] as TurmaDetailControl
+        val auth = values[8] as AuthState
 
         TurmaVirtualUiState(
             activeTurmaId = id,
@@ -201,7 +219,7 @@ class TurmasViewModel(
             downloadingItemId = ctrl.downloadingItemId,
             downloadedFileEvent = ctrl.downloadedFileEvent,
             isRefreshingDetail = ctrl.isRefreshingDetail,
-            detailError = ctrl.detailError,
+            detailError = ctrl.detailError.withoutStaleAuth(auth),
         )
     }.stateIn(
         scope = viewModelScope,

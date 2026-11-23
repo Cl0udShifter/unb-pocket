@@ -247,7 +247,7 @@ class ViewModelsTest {
         // Startup com credencial invalida informa necessidade de novo login
         val badCredsCore = FakeUnbPocketCore().apply {
             authFake.savedCredentials = true
-            silentRefreshResult = CoreResult.Failure(CoreError.InvalidCredentials)
+            authFake.nextEnsureResult = CoreResult.Failure(CoreError.InvalidCredentials)
         }
         val badCredsVm = AuthViewModel(badCredsCore)
         val badCredsCollector = backgroundScope.launch(testDispatcher) { badCredsVm.uiState.collect() }
@@ -307,5 +307,66 @@ class ViewModelsTest {
 
         turmasCollector.cancel()
         discenteCollector.cancel()
+    }
+
+    @Test
+    fun `DiscenteViewModel and TurmasViewModel clear stale disconnected banners once authenticated`() = runTest {
+        val core = FakeUnbPocketCore()
+        val authVm = AuthViewModel(core)
+        val discenteVm = DiscenteViewModel(core)
+        val turmasVm = TurmasViewModel(core)
+
+        val authCollector = backgroundScope.launch(testDispatcher) { authVm.uiState.collect() }
+        val discenteCollector = backgroundScope.launch(testDispatcher) { discenteVm.uiState.collect() }
+        val turmasListCollector = backgroundScope.launch(testDispatcher) { turmasVm.listUiState.collect() }
+        val turmaDetailCollector = backgroundScope.launch(testDispatcher) { turmasVm.detailUiState.collect() }
+
+        core.turmasFake.nextRefreshSemestreResult = CoreResult.Failure(CoreError.NoStoredCredentials)
+        core.turmasFake.nextRefreshDetalheResult = CoreResult.Failure(CoreError.NoStoredCredentials)
+        core.discenteFake.nextRefreshCarteirinhaResult = CoreResult.Failure(CoreError.NoStoredCredentials)
+        core.discenteFake.nextRefreshBoletimResult = CoreResult.Failure(CoreError.NoStoredCredentials)
+
+        discenteVm.refreshProfileAndSaldo()
+        discenteVm.refreshCarteirinha(force = true)
+        discenteVm.refreshBoletim()
+        turmasVm.refreshSemestre()
+        turmasVm.openTurma("fe_10")
+        advanceUntilIdle()
+
+        assertEquals("Conta SIGAA desconectada", discenteVm.uiState.value.profileError?.title)
+        assertEquals("Conta SIGAA desconectada", discenteVm.uiState.value.carteirinhaError?.title)
+        assertEquals("Conta SIGAA desconectada", discenteVm.uiState.value.boletimError?.title)
+        assertEquals("Conta SIGAA desconectada", turmasVm.listUiState.value.listError?.title)
+        assertEquals("Conta SIGAA desconectada", turmasVm.detailUiState.value.detailError?.title)
+
+        // Login bem-sucedido limpa todos os avisos antigos de autenticacao automaticamente
+        core.turmasFake.nextRefreshSemestreResult = null
+        core.turmasFake.nextRefreshDetalheResult = null
+        core.discenteFake.nextRefreshCarteirinhaResult = null
+        core.discenteFake.nextRefreshBoletimResult = null
+
+        authVm.onMatriculaChange("231012345")
+        authVm.onSenhaChange("secret")
+        authVm.submitLogin()
+        advanceUntilIdle()
+
+        assertTrue(authVm.uiState.value.authState is AuthState.Authenticated)
+        assertNull(authVm.uiState.value.syncError)
+        assertNull(discenteVm.uiState.value.profileError)
+        assertNull(discenteVm.uiState.value.carteirinhaError)
+        assertNull(discenteVm.uiState.value.boletimError)
+        assertNull(turmasVm.listUiState.value.listError)
+        assertNull(turmasVm.detailUiState.value.detailError)
+
+        // Erros nao ligados a login (ex: rede) continuam sendo reportados normalmente
+        core.discenteFake.nextRefreshCarteirinhaResult = CoreResult.Failure(CoreError.NetworkUnavailable)
+        discenteVm.refreshCarteirinha(force = true)
+        advanceUntilIdle()
+        assertTrue(discenteVm.uiState.value.carteirinhaError?.canRetry == true)
+
+        authCollector.cancel()
+        discenteCollector.cancel()
+        turmasListCollector.cancel()
+        turmaDetailCollector.cancel()
     }
 }

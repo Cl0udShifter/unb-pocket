@@ -1,5 +1,6 @@
 package com.unbpocket.app.ui.common
 
+import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.common.CoreError
 
 data class UiErrorBanner(
@@ -9,6 +10,9 @@ data class UiErrorBanner(
     val canRetry: Boolean = false,
     val isWarning: Boolean = false,
 )
+
+internal fun UiErrorBanner?.withoutStaleAuth(authState: AuthState): UiErrorBanner? =
+    if (authState is AuthState.Authenticated && this?.requiresLogin == true) null else this
 
 object CoreErrorMapper {
     fun toUiError(error: CoreError): UiErrorBanner = when (error) {

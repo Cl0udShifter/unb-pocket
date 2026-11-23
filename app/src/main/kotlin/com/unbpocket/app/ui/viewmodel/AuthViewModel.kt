@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unbpocket.app.ui.common.CoreErrorMapper
 import com.unbpocket.app.ui.common.UiErrorBanner
+import com.unbpocket.app.ui.common.withoutStaleAuth
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.auth.CredentialsInput
 import com.unbpocket.core.model.common.CoreError
@@ -67,8 +68,8 @@ class AuthViewModel(
             isSyncingAll = form.isSyncingAll,
             isLoggingOut = form.isLoggingOut,
             preloadProgress = preload,
-            loginError = form.loginError,
-            syncError = form.syncError,
+            loginError = form.loginError.withoutStaleAuth(auth),
+            syncError = form.syncError.withoutStaleAuth(auth),
             syncStatusMessage = form.syncStatusMessage,
         )
     }.stateIn(
@@ -81,6 +82,18 @@ class AuthViewModel(
     )
 
     init {
+        viewModelScope.launch {
+            core.auth.authState.collect { auth ->
+                if (auth is AuthState.Authenticated) {
+                    formState.update { state ->
+                        state.copy(
+                            loginError = state.loginError.withoutStaleAuth(auth),
+                            syncError = state.syncError.withoutStaleAuth(auth),
+                        )
+                    }
+                }
+            }
+        }
         bootstrapSessionIfSaved()
     }
 
