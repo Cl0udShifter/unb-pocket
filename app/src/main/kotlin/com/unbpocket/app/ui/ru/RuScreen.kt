@@ -1,12 +1,5 @@
 package com.unbpocket.app.ui.ru
 
-import android.Manifest
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.os.Build
-import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -37,16 +30,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.SoupKitchen
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.FreeBreakfast
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Newspaper
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonOutline
@@ -70,7 +62,6 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -87,7 +78,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.unbpocket.app.ui.common.DietaryBadgeKind
 import com.unbpocket.app.ui.common.FileOpener
 import com.unbpocket.app.ui.common.Formatters
@@ -138,14 +128,12 @@ fun RuScreen(
     onToggleAllergen: (Alergenico) -> Unit,
     onSetHideRestricted: (Boolean) -> Unit,
     onClearAllergens: () -> Unit,
-    onSetNotificacoesHabilitadas: (Boolean) -> Unit,
-    onToggleNotificacaoSlot: (DiaSemanaRu, TipoRefeicao) -> Unit,
-    onToggleNotificacaoDia: (DiaSemanaRu) -> Unit,
     onRefreshMenu: () -> Unit,
     onRefreshExtras: () -> Unit,
     onSetCampusSheetOpen: (Boolean) -> Unit,
     onSetAllergenSheetOpen: (Boolean) -> Unit,
     onSetNoticesSheetOpen: (Boolean) -> Unit,
+    onOpenNotifications: () -> Unit,
     onOpenAccountSheet: () -> Unit,
     onOpenLogin: () -> Unit,
     onDismissMenuError: () -> Unit,
@@ -207,15 +195,22 @@ fun RuScreen(
             actions = {
                 HeaderActionIconButton(
                     icon = Icons.Rounded.NotificationsNone,
+                    contentDescription = "Notificações do RU",
+                    buttonWidth = 40.dp,
+                    onClick = onOpenNotifications,
+                )
+                HeaderActionIconButton(
+                    icon = Icons.Rounded.Newspaper,
                     contentDescription = "Avisos e preços do RU",
                     showDot = uiState.hasUnreadNoticias,
+                    buttonWidth = 40.dp,
                     onClick = { onSetNoticesSheetOpen(true) },
                 )
                 HeaderActionIconButton(
                     icon = Icons.Rounded.Tune,
-                    contentDescription = "Alergênicos e notificações do RU",
-                    showDot = uiState.preferencias.alergenicosRestritos.isNotEmpty() ||
-                        uiState.preferencias.notificacoes.hasAnySlotSelected(),
+                    contentDescription = "Filtrar alérgenos",
+                    showDot = uiState.preferencias.alergenicosRestritos.isNotEmpty(),
+                    buttonWidth = 40.dp,
                     onClick = { onSetAllergenSheetOpen(true) },
                 )
                 HeaderActionIconButton(
@@ -229,6 +224,7 @@ fun RuScreen(
                     } else {
                         "Entrar na conta UnB"
                     },
+                    buttonWidth = 40.dp,
                     onClick = onOpenAccountSheet,
                 )
             },
@@ -415,13 +411,9 @@ fun RuScreen(
         AllergenFilterBottomSheet(
             selected = uiState.preferencias.alergenicosRestritos,
             hideRestricted = uiState.preferencias.ocultarPratosComAlergenicos,
-            notificacoes = uiState.preferencias.notificacoes,
             onToggleAllergen = onToggleAllergen,
             onSetHideRestricted = onSetHideRestricted,
             onClearAll = onClearAllergens,
-            onSetNotificacoesHabilitadas = onSetNotificacoesHabilitadas,
-            onToggleNotificacaoSlot = onToggleNotificacaoSlot,
-            onToggleNotificacaoDia = onToggleNotificacaoDia,
             onDismiss = { onSetAllergenSheetOpen(false) },
         )
     }
@@ -1093,50 +1085,15 @@ private fun CampusPickerBottomSheet(
 private fun AllergenFilterBottomSheet(
     selected: Set<Alergenico>,
     hideRestricted: Boolean,
-    notificacoes: RuNotificacaoConfig,
     onToggleAllergen: (Alergenico) -> Unit,
     onSetHideRestricted: (Boolean) -> Unit,
     onClearAll: () -> Unit,
-    onSetNotificacoesHabilitadas: (Boolean) -> Unit,
-    onToggleNotificacaoSlot: (DiaSemanaRu, TipoRefeicao) -> Unit,
-    onToggleNotificacaoDia: (DiaSemanaRu) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
-    val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val sortedAllergens = remember { Alergenico.entries.sortedBy { it.legendOrderIndex } }
-    var pendingNotificationAction by remember { mutableStateOf<(() -> Unit)?>(null) }
-    var showPermissionDeniedBanner by remember { mutableStateOf(false) }
-
-    val notificationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission(),
-    ) { granted ->
-        val action = pendingNotificationAction
-        pendingNotificationAction = null
-        if (granted) {
-            showPermissionDeniedBanner = false
-            action?.invoke()
-        } else {
-            showPermissionDeniedBanner = true
-        }
-    }
-
-    val runWithNotificationPermission: (() -> Unit) -> Unit = { action ->
-        val needsRuntimePermission = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
-            ) != PackageManager.PERMISSION_GRANTED
-        if (needsRuntimePermission) {
-            pendingNotificationAction = action
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            showPermissionDeniedBanner = false
-            action()
-        }
-    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -1148,7 +1105,6 @@ private fun AllergenFilterBottomSheet(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
                 .navigationBarsPadding()
                 .padding(horizontal = UnbSpacing.lg, vertical = UnbSpacing.sm),
             verticalArrangement = Arrangement.spacedBy(UnbSpacing.md),
@@ -1256,126 +1212,6 @@ private fun AllergenFilterBottomSheet(
                     )
                 }
             }
-
-            HairlineDivider()
-
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(
-                    text = "NOTIFICAÇÕES DO CARDÁPIO",
-                    style = typography.overline,
-                    color = colors.muted,
-                )
-                Text(
-                    text = "Envio 1h antes de cada refeição escolhida (06h, 10h e 16h), mesmo com o app fechado.",
-                    style = typography.label,
-                    color = colors.muted,
-                )
-            }
-
-            InnerTile(
-                modifier = Modifier.fillMaxWidth(),
-                contentPadding = PaddingValues(horizontal = UnbSpacing.md, vertical = 10.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Ativar notificações",
-                            style = typography.title,
-                            color = colors.ink,
-                        )
-                        Text(
-                            text = if (notificacoes.habilitado) {
-                                "Selecione abaixo os dias e refeições desejados"
-                            } else {
-                                "Desativado; sua grade fica salva ao religar"
-                            },
-                            style = typography.label,
-                            color = colors.muted,
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(UnbSpacing.sm))
-                    Switch(
-                        checked = notificacoes.habilitado,
-                        onCheckedChange = { checked ->
-                            if (checked) {
-                                runWithNotificationPermission { onSetNotificacoesHabilitadas(true) }
-                            } else {
-                                showPermissionDeniedBanner = false
-                                onSetNotificacoesHabilitadas(false)
-                            }
-                        },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = colors.pillActiveInk,
-                            checkedTrackColor = colors.pillActiveBg,
-                            uncheckedThumbColor = colors.muted,
-                            uncheckedTrackColor = colors.surface,
-                            uncheckedBorderColor = colors.border,
-                        ),
-                    )
-                }
-            }
-
-            if (showPermissionDeniedBanner) {
-                InnerTile(
-                    modifier = Modifier.fillMaxWidth(),
-                    containerColor = colors.warningBg,
-                    borderColor = colors.warningInk.copy(alpha = 0.25f),
-                    contentPadding = PaddingValues(horizontal = UnbSpacing.md, vertical = 10.dp),
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            text = "Permissão de notificações bloqueada no sistema.",
-                            style = typography.label,
-                            color = colors.warningInk,
-                            modifier = Modifier.weight(1f),
-                        )
-                        Spacer(modifier = Modifier.width(UnbSpacing.sm))
-                        TextButton(
-                            onClick = {
-                                val settingsIntent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
-                                    putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
-                                }
-                                runCatching { context.startActivity(settingsIntent) }
-                            },
-                        ) {
-                            Text(
-                                text = "Ajustes",
-                                style = typography.label,
-                                color = colors.warningInk,
-                            )
-                        }
-                    }
-                }
-            }
-
-            RuNotificationScheduleGrid(
-                notificacoes = notificacoes,
-                onToggleSlot = { dia, refeicao ->
-                    val currentlySelected = refeicao in notificacoes.refeicoesPorDia[dia].orEmpty()
-                    if (!currentlySelected || !notificacoes.habilitado) {
-                        runWithNotificationPermission { onToggleNotificacaoSlot(dia, refeicao) }
-                    } else {
-                        onToggleNotificacaoSlot(dia, refeicao)
-                    }
-                },
-                onToggleDay = { dia ->
-                    val currentMeals = notificacoes.refeicoesPorDia[dia].orEmpty()
-                    val enablingDay = currentMeals.size < TipoRefeicao.entries.size
-                    if (enablingDay || !notificacoes.habilitado) {
-                        runWithNotificationPermission { onToggleNotificacaoDia(dia) }
-                    } else {
-                        onToggleNotificacaoDia(dia)
-                    }
-                },
-            )
 
             Spacer(modifier = Modifier.height(UnbSpacing.sm))
         }
@@ -1617,7 +1453,7 @@ private fun NoticesAndPricesBottomSheet(
                     } else if (notices.isEmpty()) {
                         item(key = "notices_empty") {
                             EmptyStateCard(
-                                icon = Icons.Rounded.NotificationsNone,
+                                icon = Icons.Rounded.Newspaper,
                                 title = "Nenhum aviso carregado",
                                 body = "Toque abaixo para buscar comunicados recentes de ru.unb.br.",
                                 actionLabel = "Atualizar avisos",

@@ -141,8 +141,7 @@ fun TurmasScreen(
             actions = {
                 HeaderActionIconButton(
                     icon = Icons.Rounded.NotificationsNone,
-                    contentDescription = "Notificações",
-                    showDot = authUiState.sigaaNotificacoes.isTurmasAtivo,
+                    contentDescription = "Notificações de Turmas",
                     onClick = onOpenNotifications,
                 )
                 if (uiState.authState is AuthState.Authenticated || isEssentialSyncing) {

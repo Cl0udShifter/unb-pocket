@@ -150,8 +150,7 @@ fun DiscenteScreen(
             actions = {
                 HeaderActionIconButton(
                     icon = Icons.Rounded.NotificationsNone,
-                    contentDescription = "Notificações",
-                    showDot = authUiState.sigaaNotificacoes.isDiscenteAtivo,
+                    contentDescription = "Notificações do Discente",
                     onClick = onOpenNotifications,
                 )
                 HeaderActionIconButton(

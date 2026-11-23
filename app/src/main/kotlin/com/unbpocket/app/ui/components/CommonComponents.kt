@@ -195,13 +195,22 @@ fun HeaderActionIconButton(
     showDot: Boolean = false,
     isLoading: Boolean = false,
     tint: Color = UnbTheme.colors.ink,
+    buttonWidth: Dp = 48.dp,
 ) {
     val colors = UnbTheme.colors
-    Box(modifier = modifier.size(48.dp), contentAlignment = Alignment.Center) {
+    val dotEndPadding = ((buttonWidth - 22.dp) / 2f - 2.dp).coerceAtLeast(6.dp)
+    Box(
+        modifier = modifier
+            .width(buttonWidth)
+            .height(48.dp),
+        contentAlignment = Alignment.Center,
+    ) {
         IconButton(
             onClick = onClick,
             enabled = !isLoading,
-            modifier = Modifier.size(48.dp),
+            modifier = Modifier
+                .width(buttonWidth)
+                .height(48.dp),
         ) {
             if (isLoading) {
                 SkeletonInlineBar(
@@ -222,7 +231,7 @@ fun HeaderActionIconButton(
             Box(
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 11.dp, end = 11.dp)
+                    .padding(top = 11.dp, end = dotEndPadding)
                     .size(7.dp)
                     .clip(CircleShape)
                     .background(colors.ink),

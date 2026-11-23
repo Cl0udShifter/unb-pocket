@@ -200,6 +200,24 @@ fun NotificationCenterBottomSheet(
         Unit
     }
 
+    val sheetTitle = remember(initialSection) {
+        when (initialSection) {
+            NotificationCenterSection.RU -> "Notificações do RU"
+            NotificationCenterSection.TURMAS -> "Notificações · Turmas"
+            NotificationCenterSection.DISCENTE -> "Notificações · Discente"
+            null -> "Central de Notificações"
+        }
+    }
+    val sheetSubtitle = remember(initialSection) {
+        when (initialSection) {
+            NotificationCenterSection.RU -> "Alertas locais 1h antes das refeições escolhidas, mesmo com o app fechado."
+            NotificationCenterSection.TURMAS -> "Lembretes de aulas, avisos, materiais, provas, notas e faltas."
+            NotificationCenterSection.DISCENTE -> "Alertas de saldo RU, extrato, boletim e índices acadêmicos."
+            null -> "Lembretes locais e monitoramento em segundo plano com o app fechado."
+        }
+    }
+    val isScopedToSingleScreen = initialSection != null
+
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
@@ -224,12 +242,12 @@ fun NotificationCenterBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(2.dp),
                 ) {
                     Text(
-                        text = "Central de Notificações",
+                        text = sheetTitle,
                         style = typography.displayEditorial,
                         color = colors.ink,
                     )
                     Text(
-                        text = "Lembretes locais e monitoramento em segundo plano com o app fechado.",
+                        text = sheetSubtitle,
                         style = typography.label,
                         color = colors.muted,
                     )
@@ -287,23 +305,12 @@ fun NotificationCenterBottomSheet(
                 }
             }
 
-            val orderedSections = remember(initialSection) {
+            val visibleSections = remember(initialSection) {
                 when (initialSection) {
-                    NotificationCenterSection.TURMAS -> listOf(
-                        NotificationCenterSection.TURMAS,
-                        NotificationCenterSection.DISCENTE,
-                        NotificationCenterSection.RU,
-                    )
-
-                    NotificationCenterSection.DISCENTE -> listOf(
-                        NotificationCenterSection.DISCENTE,
-                        NotificationCenterSection.TURMAS,
-                        NotificationCenterSection.RU,
-                    )
-
-                    NotificationCenterSection.RU,
-                    null,
-                    -> listOf(
+                    NotificationCenterSection.RU -> listOf(NotificationCenterSection.RU)
+                    NotificationCenterSection.TURMAS -> listOf(NotificationCenterSection.TURMAS)
+                    NotificationCenterSection.DISCENTE -> listOf(NotificationCenterSection.DISCENTE)
+                    null -> listOf(
                         NotificationCenterSection.RU,
                         NotificationCenterSection.TURMAS,
                         NotificationCenterSection.DISCENTE,
@@ -311,7 +318,7 @@ fun NotificationCenterBottomSheet(
                 }
             }
 
-            orderedSections.forEach { section ->
+            visibleSections.forEach { section ->
                 when (section) {
                     NotificationCenterSection.RU -> {
                         val ruSlotsCount = ruNotificacoes.refeicoesPorDia.values.sumOf { it.size }
@@ -324,7 +331,8 @@ fun NotificationCenterBottomSheet(
                                 "Café (06h), Almoço (10h) e Jantar (16h)"
                             },
                             checked = ruNotificacoes.habilitado,
-                            expanded = expandedRu,
+                            expanded = if (isScopedToSingleScreen) true else expandedRu,
+                            collapsible = !isScopedToSingleScreen,
                             onToggleExpand = { expandedRu = !expandedRu },
                             onCheckedChange = { enabled ->
                                 if (enabled) {
@@ -379,7 +387,8 @@ fun NotificationCenterBottomSheet(
                                 "Horários, avisos, materiais, provas, notas e faltas"
                             },
                             checked = turmasChecked,
-                            expanded = expandedTurmas,
+                            expanded = if (isScopedToSingleScreen) true else expandedTurmas,
+                            collapsible = !isScopedToSingleScreen,
                             onToggleExpand = { expandedTurmas = !expandedTurmas },
                             onCheckedChange = { enabled ->
                                 if (enabled) {
@@ -535,7 +544,8 @@ fun NotificationCenterBottomSheet(
                                 "Saldo baixo RU, extrato, boletim e índices (IRA/MP)"
                             },
                             checked = discenteChecked,
-                            expanded = expandedDiscente,
+                            expanded = if (isScopedToSingleScreen) true else expandedDiscente,
+                            collapsible = !isScopedToSingleScreen,
                             onToggleExpand = { expandedDiscente = !expandedDiscente },
                             onCheckedChange = { enabled ->
                                 if (enabled) {
@@ -630,55 +640,57 @@ fun NotificationCenterBottomSheet(
                 }
             }
 
-            EditorialCard(
-                contentPadding = PaddingValues(UnbSpacing.md),
-                containerColor = colors.surfaceRaised,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+            if (initialSection != NotificationCenterSection.RU) {
+                EditorialCard(
+                    contentPadding = PaddingValues(UnbSpacing.md),
+                    containerColor = colors.surfaceRaised,
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Sync,
-                        contentDescription = null,
-                        tint = colors.ink,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        text = "SINCRONIZAÇÃO EM SEGUNDO PLANO (SIGAA)",
-                        style = typography.overline,
-                        color = colors.ink,
-                    )
-                }
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = "Define com que frequência o app consulta o SIGAA fechado para avisar de novidades remotas.",
-                    style = typography.label,
-                    color = colors.muted,
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    SigaaSyncIntervalHours.entries.forEach { interval ->
-                        EditorialOptionChip(
-                            label = interval.label,
-                            selected = sigaaNotificacoes.syncIntervalHours == interval,
-                            onClick = { onSetSyncInterval(interval) },
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Sync,
+                            contentDescription = null,
+                            tint = colors.ink,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Text(
+                            text = "SINCRONIZAÇÃO EM SEGUNDO PLANO (SIGAA)",
+                            style = typography.overline,
+                            color = colors.ink,
                         )
                     }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Define com que frequência o app consulta o SIGAA fechado para avisar de novidades remotas.",
+                        style = typography.label,
+                        color = colors.muted,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        SigaaSyncIntervalHours.entries.forEach { interval ->
+                            EditorialOptionChip(
+                                label = interval.label,
+                                selected = sigaaNotificacoes.syncIntervalHours == interval,
+                                onClick = { onSetSyncInterval(interval) },
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HairlineDivider()
+                    Spacer(modifier = Modifier.height(10.dp))
+                    NotificationSubToggleRow(
+                        title = "Sincronizar somente no Wi-Fi",
+                        subtitle = "Evita consumo de dados móveis em segundo plano",
+                        checked = sigaaNotificacoes.somenteWifi,
+                        enabled = true,
+                        onCheckedChange = onSetSomenteWifi,
+                    )
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                HairlineDivider()
-                Spacer(modifier = Modifier.height(10.dp))
-                NotificationSubToggleRow(
-                    title = "Sincronizar somente no Wi-Fi",
-                    subtitle = "Evita consumo de dados móveis em segundo plano",
-                    checked = sigaaNotificacoes.somenteWifi,
-                    enabled = true,
-                    onCheckedChange = onSetSomenteWifi,
-                )
             }
 
             OutlinedButton(
@@ -706,6 +718,7 @@ private fun NotificationSectionCard(
     subtitle: String,
     checked: Boolean,
     expanded: Boolean,
+    collapsible: Boolean = true,
     onToggleExpand: () -> Unit,
     onCheckedChange: (Boolean) -> Unit,
     content: @Composable () -> Unit,
@@ -720,7 +733,13 @@ private fun NotificationSectionCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(UnbShapes.inner)
-                .clickable(role = Role.Button, onClick = onToggleExpand),
+                .then(
+                    if (collapsible) {
+                        Modifier.clickable(role = Role.Button, onClick = onToggleExpand)
+                    } else {
+                        Modifier
+                    },
+                ),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
@@ -768,12 +787,14 @@ private fun NotificationSectionCard(
                     uncheckedBorderColor = colors.border,
                 ),
             )
-            Icon(
-                imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
-                contentDescription = if (expanded) "Recolher seção" else "Expandir seção",
-                tint = colors.muted,
-                modifier = Modifier.size(20.dp),
-            )
+            if (collapsible) {
+                Icon(
+                    imageVector = if (expanded) Icons.Rounded.KeyboardArrowUp else Icons.Rounded.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Recolher seção" else "Expandir seção",
+                    tint = colors.muted,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
         }
 
         AnimatedVisibility(
