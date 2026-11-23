@@ -650,26 +650,29 @@ private fun AcademicMetricsCard(resumo: DiscenteResumo) {
         Spacer(modifier = Modifier.height(UnbSpacing.md))
 
         val percentValue = (indices.percentualIntegralizadoExato ?: 0.0).coerceIn(0.0, 100.0)
-        val percentLabel = when {
-            !indices.percentualIntegralizadoTexto.isNullOrBlank() -> indices.percentualIntegralizadoTexto.orEmpty()
-            indices.percentualIntegralizadoExato != null -> String.format(Locale.US, "%.1f%%", percentValue)
-            else -> "-"
-        }
+        val percentLabel = Formatters.formatIntegralizacaoPercent(
+            exactPercent = indices.percentualIntegralizadoExato,
+            rawText = indices.percentualIntegralizadoTexto,
+        )
 
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(UnbSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = "Integralização Curricular",
                 style = typography.title,
                 color = colors.ink,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Text(
                 text = percentLabel,
                 style = typography.bodyTabular.copy(fontWeight = FontWeight.Bold),
                 color = colors.ink,
+                maxLines = 1,
             )
         }
 
@@ -714,10 +717,11 @@ private fun AcademicMetricsCard(resumo: DiscenteResumo) {
                     color = colors.muted,
                 )
             }
-            if (obPending != null || optPending != null) {
+            if (obPending != null || optPending != null || compPending > 0) {
                 Spacer(modifier = Modifier.height(4.dp))
+                val compSuffix = if (compPending > 0) " · Complementares ${compPending}h" else ""
                 Text(
-                    text = "Pendentes: Obrigatórias ${obPending ?: 0}h · Optativas ${optPending ?: 0}h",
+                    text = "Pendentes: Obrigatórias ${obPending ?: 0}h · Optativas ${optPending ?: 0}h$compSuffix",
                     style = typography.label,
                     color = colors.muted,
                 )

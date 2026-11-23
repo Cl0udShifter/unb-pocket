@@ -91,10 +91,18 @@ object DiscentePortalParser {
             ?.let { progressWidthRegex.find(it)?.groupValues?.getOrNull(1) }
             ?.replace(',', '.')
             ?.toDoubleOrNull()
-        val percentualTexto = doc.select("#agenda-docente td")
-            .firstOrNull { it.text().contains("Integralizado", ignoreCase = true) }
+        val integralizacaoCellText = doc.select("#agenda-docente td")
+            .lastOrNull { it.text().contains("Integralizado", ignoreCase = true) }
             ?.text()
             ?.trim()
+        val percentualTexto = integralizacaoCellText?.let { text ->
+            Regex("""\d+(?:[.,]\d+)?%\s*Integralizado""", RegexOption.IGNORE_CASE)
+                .find(text)
+                ?.value
+                ?.replace(Regex("""\s+"""), " ")
+                ?.trim()
+                ?: text
+        }
 
         val indices = IndicesIntegralizacao(
             ira = parseDoubleOrNull(agendaRows["ira"]),

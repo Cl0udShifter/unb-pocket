@@ -1016,7 +1016,12 @@ fun LocalBitmapImage(
                 runCatching {
                     val file = File(localPath)
                     if (!file.exists()) return@runCatching null
-                    BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                    val decoded = BitmapFactory.decodeFile(file.absolutePath) ?: return@runCatching null
+                    if (isBlankOrUniformBitmap(decoded)) {
+                        decoded.recycle()
+                        return@runCatching null
+                    }
+                    decoded.asImageBitmap()
                 }.getOrNull()
             }
         }
@@ -1032,6 +1037,42 @@ fun LocalBitmapImage(
     } else {
         fallback()
     }
+}
+
+private fun isBlankOrUniformBitmap(bitmap: Bitmap): Boolean {
+    if (bitmap.width <= 0 || bitmap.height <= 0) return true
+    val steps = 12
+    var minR = 255
+    var maxR = 0
+    var minG = 255
+    var maxG = 0
+    var minB = 255
+    var maxB = 0
+    var hasOpaque = false
+
+    for (iy in 0 until steps) {
+        val y = (iy * (bitmap.height - 1)) / (steps - 1).coerceAtLeast(1)
+        for (ix in 0 until steps) {
+            val x = (ix * (bitmap.width - 1)) / (steps - 1).coerceAtLeast(1)
+            val px = bitmap.getPixel(x, y)
+            val a = (px ushr 24) and 0xFF
+            if (a < 16) continue
+            hasOpaque = true
+            val r = (px ushr 16) and 0xFF
+            val g = (px ushr 8) and 0xFF
+            val b = px and 0xFF
+            if (r < minR) minR = r
+            if (r > maxR) maxR = r
+            if (g < minG) minG = g
+            if (g > maxG) maxG = g
+            if (b < minB) minB = b
+            if (b > maxB) maxB = b
+        }
+    }
+
+    if (!hasOpaque) return true
+    val spread = maxOf(maxR - minR, maxG - minG, maxB - minB)
+    return spread <= 10
 }
 
 @Composable

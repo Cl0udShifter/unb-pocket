@@ -195,4 +195,41 @@ class DiscentePortalParserTest {
         assertEquals("16/10/2026", feed[0].dataTexto)
         assertEquals("Nova Notícia: Experimento 07 - Roteiro", feed[0].tituloNoticia)
     }
+
+    @Test
+    fun extractsShortIntegralizacaoTextFromNestedAgendaTable() {
+        val html = """
+            <html><body>
+              <div id="info-usuario">
+                <p class="usuario"><span>Daniel</span></p>
+                <p class="periodo-atual"><strong>2026.2</strong></p>
+              </div>
+              <form id="menu:form_menu_discente"><input type="hidden" name="id" value="331956" /></form>
+              <div id="agenda-docente">
+                <table>
+                  <tr><td>Matrícula:</td><td>190026308</td></tr>
+                  <tr>
+                    <td colspan="2">
+                      Integralizações:
+                      <table>
+                        <tr><td>CH. Obrigatória Pendente</td><td>420</td></tr>
+                        <tr><td>CH. Optativa Pendente</td><td>540</td></tr>
+                        <tr><td>CH. Total Currículo</td><td>3750</td></tr>
+                        <tr><td>CH. Complementar Pendente</td><td>0</td></tr>
+                        <tr><td colspan="2"><div class="progress-bar" style="width: 74%"></div></td></tr>
+                        <tr><td colspan="2">74% Integralizado</td></tr>
+                      </table>
+                    </td>
+                  </tr>
+                </table>
+              </div>
+            </body></html>
+        """.trimIndent()
+
+        val result = DiscentePortalParser.parseDiscenteResumo(html)
+        assertTrue(result is CoreResult.Success)
+        val indices = (result as CoreResult.Success).value.indices
+        assertEquals(74.0, indices.percentualIntegralizadoExato ?: 0.0, 0.01)
+        assertEquals("74% Integralizado", indices.percentualIntegralizadoTexto)
+    }
 }

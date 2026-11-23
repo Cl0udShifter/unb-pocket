@@ -144,4 +144,12 @@ class FormattersTest {
         val raw = "<p>Aten&ccedil;&atilde;o: aula &amp; prova.<br/>Sala PJC.</p>"
         assertEquals("Atenção: aula & prova.\nSala PJC.", Formatters.htmlToPlainText(raw))
     }
+
+    @Test
+    fun `formatIntegralizacaoPercent formats exact values and cleans dirty text`() {
+        assertEquals("74%", Formatters.formatIntegralizacaoPercent(74.0, "Integralizações: ... 74% Integralizado"))
+        assertEquals("74.4%", Formatters.formatIntegralizacaoPercent(74.4, null))
+        assertEquals("74%", Formatters.formatIntegralizacaoPercent(null, "Integralizações: CH 3750 74% Integralizado"))
+        assertEquals("-", Formatters.formatIntegralizacaoPercent(null, null))
+    }
 }

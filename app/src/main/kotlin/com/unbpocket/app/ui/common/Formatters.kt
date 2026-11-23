@@ -390,6 +390,23 @@ object Formatters {
         }
     }
 
+    fun formatIntegralizacaoPercent(exactPercent: Double?, rawText: String?): String {
+        if (exactPercent != null) {
+            val clamped = exactPercent.coerceIn(0.0, 100.0)
+            val rounded = kotlin.math.round(clamped * 10.0) / 10.0
+            return if (rounded % 1.0 == 0.0) {
+                "${rounded.toInt()}%"
+            } else {
+                String.format(Locale.US, "%.1f%%", rounded)
+            }
+        }
+        if (!rawText.isNullOrBlank()) {
+            val match = Regex("""\d+(?:[.,]\d+)?%""").find(rawText)?.value
+            if (!match.isNullOrBlank()) return match.replace(',', '.')
+        }
+        return "-"
+    }
+
     fun htmlToPlainText(html: String): String {
         if (html.isBlank()) return ""
         val normalizedBreaks = html
