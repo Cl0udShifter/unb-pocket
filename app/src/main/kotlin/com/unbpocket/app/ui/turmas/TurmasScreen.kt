@@ -175,7 +175,6 @@ fun TurmasScreen(
                         ErrorBanner(
                             banner = uiState.listError,
                             onRetry = if (uiState.listError.canRetry) onRefresh else null,
-                            onLoginClick = if (uiState.listError.requiresLogin) onOpenLogin else null,
                             onDismiss = onDismissError,
                         )
                     }

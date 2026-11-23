@@ -215,7 +215,6 @@ fun DiscenteScreen(
                         ErrorBanner(
                             banner = uiState.profileError,
                             onRetry = if (uiState.profileError.canRetry) onRefreshProfile else null,
-                            onLoginClick = if (uiState.profileError.requiresLogin) onOpenLogin else null,
                             onDismiss = onDismissProfileError,
                         )
                     }
