@@ -166,7 +166,7 @@ interface UnbPocketCore {
 * `val authState: StateFlow<AuthState>`
 * `suspend fun login(credentials: CredentialsInput): CoreResult<AuthState.Authenticated>`
 * `suspend fun ensureValidSession(): CoreResult<AuthState.Authenticated>`
-* `suspend fun logout(clearCachedData: Boolean = true): CoreResult<Unit>`
+* `suspend fun logout(clearCachedData: Boolean = true): CoreResult<Unit>` (com `clearCachedData = true`, limpa apenas dados privados da conta SIGAA: `DISCENTE`, `TURMAS`, `RU_SALDO` e arquivos de carteirinha/documentos/materiais, preservando cardapios, precos, noticias e PDFs publicos do RU)
 * `suspend fun hasSavedCredentials(): Boolean`
 
 ### 4.3 `RuRepository` (Tela 1: RU)

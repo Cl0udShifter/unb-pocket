@@ -35,6 +35,9 @@ interface SnapshotDao {
     @Query("DELETE FROM cached_snapshots WHERE domain = :domain")
     suspend fun clearDomain(domain: String)
 
+    @Query("DELETE FROM cached_snapshots WHERE cacheKey = :cacheKey")
+    suspend fun clearKey(cacheKey: String)
+
     @Query("DELETE FROM cached_snapshots")
     suspend fun clearAll()
 }

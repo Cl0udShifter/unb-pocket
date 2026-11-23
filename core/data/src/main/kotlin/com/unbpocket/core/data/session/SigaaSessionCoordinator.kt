@@ -73,8 +73,8 @@ class SigaaSessionCoordinator(
         transport.session.cookieJar.clear()
         vault.clear()
         if (clearCachedData) {
-            cacheStore.clearAll()
-            fileStore.clearAll()
+            cacheStore.clearSigaaUserData()
+            fileStore.clearSigaaUserFiles()
         }
         _authState.value = AuthState.Unauthenticated
     }.fold(

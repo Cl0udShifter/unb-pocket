@@ -565,6 +565,109 @@ class UnbPocketCoreIntegrationTest {
         assertNotNull(core.discente.observeDiscenteResumo().first())
     }
 
+    @Test
+    fun logoutClearsSigaaUserDataWhilePreservingPublicRuMenuPricesNoticesAndPdfs() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    path.contains("/wp-json/wp/v2/pages/12853") -> MockResponse().setResponseCode(200).setBody(
+                        """
+                        {
+                          "id": 12853,
+                          "modified_gmt": "2026-11-19T11:19:39",
+                          "content": {
+                            "rendered": "<h3>Cardápio Darcy Ribeiro</h3><p><a href=\"${server.url("/uploads/darcy.pdf")}\">23/11 à 29/11</a></p>"
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    path.contains("slug=precos-e-grupos") -> MockResponse().setResponseCode(200).setBody(
+                        """
+                        [
+                          {
+                            "id": 400,
+                            "modified_gmt": "2026-11-01T10:00:00",
+                            "content": { "rendered": "<table><tr><th>Grupo</th><th>Café</th><th>Almoço</th><th>Jantar</th></tr><tr><td>Grupo IV</td><td>R$ 2,50</td><td>R$ 6,10</td><td>R$ 6,10</td></tr></table>" }
+                          }
+                        ]
+                        """.trimIndent(),
+                    )
+                    path.contains("/uploads/darcy.pdf") -> pdfResponse("%PDF-1.4 cardapio")
+                    path.contains("/wp-json/wp/v2/media") -> MockResponse().setResponseCode(200).setBody("[]")
+                    path.contains("/wp-json/wp/v2/posts") -> MockResponse().setResponseCode(200).setBody(
+                        """[{"id":23408,"date":"2026-05-28T10:00:00","link":"https://ru.unb.br/n1","title":{"rendered":"Edital 07"},"excerpt":{"rendered":"Resumo"},"content":{"rendered":"<p>Texto</p>"}}]""",
+                    )
+
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/verPortalDiscente.do")
+                    path.startsWith("/sigaa/verPortalDiscente.do") ->
+                        latin1Response(discenteHomeHtml())
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formExibirExtrato") -> latin1Response(extratoRuHtml())
+                            body.contains("atestadoMatriculaUnb") -> latin1Response(atestadoHtml())
+                            body.contains("frontEndIdTurma") -> latin1Response(avaHomeHtml())
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+                    path.startsWith("/sigaa/ava/index.jsf") && request.method == "POST" ->
+                        MockResponse()
+                            .setResponseCode(200)
+                            .setHeader("Content-Type", "application/pdf")
+                            .setHeader("Content-Disposition", "attachment; filename=\"roteiro.pdf\"")
+                            .setBody("PDF_MATERIAL_BYTES")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        pdfExtractor.ruPagesResult = CoreResult.Success(listOf(buildSyntheticRuMenuPage()))
+
+        // 1. Carrega dados publicos do RU (cardapio, tabela de precos, noticias e PDF local)
+        val menu = (core.ru.refreshCardapio(CampusRu.DARCY_RIBEIRO) as CoreResult.Success).value
+        assertNotNull(core.ru.observeCardapio(CampusRu.DARCY_RIBEIRO).first())
+        assertTrue(core.ru.refreshTabelaPrecos() is CoreResult.Success)
+        assertTrue(core.ru.refreshNoticias() is CoreResult.Success)
+        val menuPdfPath = menu.localPdfPath
+        assertNotNull(menuPdfPath)
+        assertTrue(File(menuPdfPath!!).exists())
+
+        // 2. Conecta ao SIGAA, sincroniza perfil/turmas/saldo RU e baixa arquivo de turma
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        assertTrue(core.syncPortalHome(includeSaldoRu = true) is CoreResult.Success)
+        val material = (core.turmas.downloadMaterial(frontEndId, "HASH_MAT_1") as CoreResult.Success).value
+        assertNotNull(core.ru.observeSaldoExtrato().first())
+        assertTrue(File(material.localFilePath).exists())
+
+        // 3. Desconectar manualmente limpa dados SIGAA + saldo RU, mas preserva cardapio/precos/noticias/PDF publicos
+        assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
+        assertFalse(core.auth.hasSavedCredentials())
+        assertNull(core.discente.observeDiscenteResumo().first())
+        assertNull(core.turmas.observeTurmasSemestre().first())
+        assertNull(core.ru.observeSaldoExtrato().first())
+        assertFalse(File(material.localFilePath).exists())
+
+        assertNotNull(core.ru.observeCardapio(CampusRu.DARCY_RIBEIRO).first())
+        assertEquals(DataOrigin.REMOTE, core.ru.observeTabelaPrecos().first()?.origin)
+        assertNotNull(core.ru.observeNoticias().first())
+        assertTrue(File(menuPdfPath).exists())
+
+        // Confirma regra de filtro de subdiretorios usada pelo DownloadedFileStore no Android
+        assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("carteirinha"))
+        assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("documentos"))
+        assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("materiais_$frontEndId"))
+        assertFalse(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("pdfs"))
+    }
+
     private fun redirect(location: String) =
         MockResponse().setResponseCode(302).setHeader("Location", location)
 

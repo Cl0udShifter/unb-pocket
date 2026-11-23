@@ -53,6 +53,16 @@ class DownloadedFileStore(
         file
     }
 
+    override suspend fun clearSigaaUserFiles() = withContext(Dispatchers.IO) {
+        if (!rootDir.exists()) return@withContext
+        rootDir.listFiles()?.forEach { entry ->
+            if (isSigaaUserDir(entry.name)) {
+                entry.deleteRecursively()
+            }
+        }
+        Unit
+    }
+
     override suspend fun clearAll() = withContext(Dispatchers.IO) {
         if (rootDir.exists()) {
             rootDir.deleteRecursively()
@@ -66,4 +76,12 @@ class DownloadedFileStore(
         name.substringAfterLast('/').substringAfterLast('\\')
             .replace(Regex("""[^a-zA-Z0-9._-]"""), "_")
             .ifBlank { "arquivo.bin" }
+
+    internal companion object {
+        fun isSigaaUserDir(name: String): Boolean =
+            name == "carteirinha" ||
+                name == "documentos" ||
+                name == "materiais" ||
+                name.startsWith("materiais_")
+    }
 }

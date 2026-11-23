@@ -105,6 +105,16 @@ class SnapshotCacheStore(
         dao.clearDomain(domain)
     }
 
+    suspend fun clearKey(cacheKey: String) {
+        dao.clearKey(cacheKey)
+    }
+
+    suspend fun clearSigaaUserData() {
+        dao.clearDomain(Domains.DISCENTE)
+        dao.clearDomain(Domains.TURMAS)
+        dao.clearKey(Keys.RU_SALDO)
+    }
+
     suspend fun clearAll() {
         dao.clearAll()
     }

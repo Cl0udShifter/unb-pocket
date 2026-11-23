@@ -41,6 +41,10 @@ class InMemorySnapshotDao : SnapshotDao {
         rows.value = rows.value.filterValues { it.domain != domain }
     }
 
+    override suspend fun clearKey(cacheKey: String) {
+        rows.value = rows.value - cacheKey
+    }
+
     override suspend fun clearAll() {
         rows.value = emptyMap()
     }
@@ -90,6 +94,14 @@ class TempFileStore : FileStore {
         val dir = File(rootDir, subdir).apply { mkdirs() }
         // Grava cabecalho PNG minimo + payload para testes JVM sem depender de android.graphics.Bitmap
         return File(dir, fileName).apply { writeBytes(image.rgbBytes) }
+    }
+
+    override suspend fun clearSigaaUserFiles() {
+        rootDir.listFiles()?.forEach { entry ->
+            if (com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir(entry.name)) {
+                entry.deleteRecursively()
+            }
+        }
     }
 
     override suspend fun clearAll() {
