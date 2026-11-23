@@ -1,0 +1,5 @@
+<resources>
+    <style name="Theme.UnbPocket" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/unb_splash_bg</item>
+    </style>
+</resources>

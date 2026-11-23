@@ -1,0 +1,909 @@
+package com.unbpocket.app.ui.components
+
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
+import androidx.compose.material.icons.rounded.CalendarMonth
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.ErrorOutline
+import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Restaurant
+import androidx.compose.material.icons.rounded.School
+import androidx.compose.material.icons.rounded.WarningAmber
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.NavigationRailItemDefaults
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import com.unbpocket.app.ui.common.DietaryBadgeKind
+import com.unbpocket.app.ui.common.Formatters
+import com.unbpocket.app.ui.common.UiErrorBanner
+import com.unbpocket.app.ui.theme.UnbShapes
+import com.unbpocket.app.ui.theme.UnbSpacing
+import com.unbpocket.app.ui.theme.UnbTheme
+import com.unbpocket.core.model.common.DataOrigin
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+
+enum class TopDestination(
+    val route: String,
+    val label: String,
+    val icon: ImageVector,
+) {
+    RU(route = "ru", label = "RU", icon = Icons.Rounded.Restaurant),
+    TURMAS(route = "turmas", label = "Turmas", icon = Icons.Rounded.CalendarMonth),
+    DISCENTE(route = "discente", label = "Discente", icon = Icons.Rounded.School),
+}
+
+enum class StatusTagTone {
+    NEUTRAL,
+    INFO,
+    WARNING,
+    DANGER,
+    INVERTED,
+}
+
+@Composable
+fun EditorialHeader(
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: (@Composable () -> Unit)? = null,
+    navigationIcon: (@Composable () -> Unit)? = null,
+    actions: @Composable RowScope.() -> Unit = {},
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .padding(horizontal = UnbSpacing.lg, vertical = UnbSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (navigationIcon != null) {
+                navigationIcon()
+                Spacer(modifier = Modifier.width(UnbSpacing.sm))
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = typography.displayEditorial,
+                    color = colors.ink,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle != null) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    subtitle()
+                }
+            }
+        }
+        Spacer(modifier = Modifier.width(UnbSpacing.sm))
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+            content = actions,
+        )
+    }
+}
+
+@Composable
+fun BackHeaderButton(
+    onClick: () -> Unit,
+    contentDescription: String = "Voltar",
+) {
+    IconButton(
+        onClick = onClick,
+        modifier = Modifier
+            .size(48.dp)
+            .clip(CircleShape)
+            .background(UnbTheme.colors.surface)
+            .border(1.dp, UnbTheme.colors.border, CircleShape),
+    ) {
+        Icon(
+            imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+            contentDescription = contentDescription,
+            tint = UnbTheme.colors.ink,
+        )
+    }
+}
+
+@Composable
+fun HeaderActionIconButton(
+    icon: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    showDot: Boolean = false,
+    isLoading: Boolean = false,
+    tint: Color = UnbTheme.colors.ink,
+) {
+    val colors = UnbTheme.colors
+    Box(modifier = modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        IconButton(
+            onClick = onClick,
+            enabled = !isLoading,
+            modifier = Modifier.size(48.dp),
+        ) {
+            if (isLoading) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = colors.ink,
+                )
+            } else {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = contentDescription,
+                    tint = tint,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        if (showDot && !isLoading) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 11.dp, end = 11.dp)
+                    .size(7.dp)
+                    .clip(CircleShape)
+                    .background(colors.ink),
+            )
+        }
+    }
+}
+
+@Composable
+fun EditorialCard(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(UnbSpacing.lg),
+    containerColor: Color = UnbTheme.colors.surface,
+    borderColor: Color = UnbTheme.colors.border,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier
+                        .clip(UnbShapes.card)
+                        .clickable(role = Role.Button, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            ),
+        shape = UnbShapes.card,
+        color = containerColor,
+        border = BorderStroke(1.dp, borderColor),
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(contentPadding),
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun InnerTile(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(UnbSpacing.md),
+    containerColor: Color = UnbTheme.colors.surfaceRaised,
+    borderColor: Color = Color.Transparent,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Surface(
+        modifier = modifier.then(
+            if (onClick != null) {
+                Modifier
+                    .clip(UnbShapes.inner)
+                    .clickable(role = Role.Button, onClick = onClick)
+            } else {
+                Modifier
+            },
+        ),
+        shape = UnbShapes.inner,
+        color = containerColor,
+        border = if (borderColor != Color.Transparent) BorderStroke(1.dp, borderColor) else null,
+        shadowElevation = 0.dp,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            modifier = Modifier.padding(contentPadding),
+            content = content,
+        )
+    }
+}
+
+@Composable
+fun HairlineDivider(modifier: Modifier = Modifier) {
+    HorizontalDivider(
+        modifier = modifier,
+        thickness = 1.dp,
+        color = UnbTheme.colors.rule,
+    )
+}
+
+@Composable
+fun SegmentedPillBar(
+    options: List<String>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.border),
+        shadowElevation = 0.dp,
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            options.forEachIndexed { index, title ->
+                val selected = index == selectedIndex
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 40.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .clickable(role = Role.Tab) { onSelect(index) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (selected) colors.surfaceRaised else Color.Transparent,
+                    shadowElevation = 0.dp,
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 9.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = title,
+                            style = typography.label,
+                            color = if (selected) colors.ink else colors.muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun DietaryBadge(
+    kind: DietaryBadgeKind,
+    modifier: Modifier = Modifier,
+) {
+    val colors = UnbTheme.colors
+    val (bg, fg) = when (kind) {
+        DietaryBadgeKind.PADRAO -> colors.tagStdBg to colors.tagStdInk
+        DietaryBadgeKind.OVOLACTO -> colors.tagOvoBg to colors.tagOvoInk
+        DietaryBadgeKind.VEGANO -> colors.tagVegBg to colors.tagVegInk
+    }
+
+    Box(
+        modifier = modifier
+            .defaultMinSize(minWidth = 76.dp)
+            .clip(UnbShapes.tag)
+            .background(bg)
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = kind.label,
+            style = UnbTheme.typography.label,
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun StatusTag(
+    text: String,
+    modifier: Modifier = Modifier,
+    tone: StatusTagTone = StatusTagTone.NEUTRAL,
+) {
+    val colors = UnbTheme.colors
+    val (bg, fg) = when (tone) {
+        StatusTagTone.NEUTRAL -> colors.surfaceRaised to colors.muted
+        StatusTagTone.INFO -> colors.infoBg to colors.infoInk
+        StatusTagTone.WARNING -> colors.warningBg to colors.warningInk
+        StatusTagTone.DANGER -> colors.dangerBg to colors.dangerInk
+        StatusTagTone.INVERTED -> colors.pillActiveBg to colors.pillActiveInk
+    }
+
+    Box(
+        modifier = modifier
+            .clip(UnbShapes.tag)
+            .background(bg)
+            .padding(horizontal = 8.dp, vertical = 4.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            style = UnbTheme.typography.label,
+            color = fg,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun OfflineOriginStrip(
+    origin: DataOrigin,
+    syncedAtEpochMillis: Long,
+    modifier: Modifier = Modifier,
+    extraNote: String? = null,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+    val text = buildString {
+        append(Formatters.formatOriginSummary(origin, syncedAtEpochMillis))
+        if (!extraNote.isNullOrBlank()) {
+            append(" · ")
+            append(extraNote)
+        }
+    }
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        val dotColor = when (origin) {
+            DataOrigin.REMOTE -> colors.muted
+            DataOrigin.CACHE -> colors.warningInk
+            DataOrigin.FALLBACK -> colors.infoInk
+        }
+        Box(
+            modifier = Modifier
+                .size(6.dp)
+                .clip(CircleShape)
+                .background(dotColor),
+        )
+        Text(
+            text = text,
+            style = typography.label,
+            color = colors.muted,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun ErrorBanner(
+    banner: UiErrorBanner,
+    modifier: Modifier = Modifier,
+    onRetry: (() -> Unit)? = null,
+    onLoginClick: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+    val bg = if (banner.isWarning) colors.warningBg else colors.dangerBg
+    val fg = if (banner.isWarning) colors.warningInk else colors.dangerInk
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = UnbShapes.card,
+        color = bg,
+        border = BorderStroke(1.dp, fg.copy(alpha = 0.3f)),
+        shadowElevation = 0.dp,
+    ) {
+        Column(modifier = Modifier.padding(UnbSpacing.md)) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = if (banner.isWarning) {
+                            Icons.Rounded.WarningAmber
+                        } else {
+                            Icons.Rounded.ErrorOutline
+                        },
+                        contentDescription = null,
+                        tint = fg,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = banner.title,
+                        style = typography.title,
+                        color = fg,
+                    )
+                }
+                if (onDismiss != null) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp),
+                    ) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Fechar aviso",
+                            tint = fg,
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = banner.message,
+                style = typography.body,
+                color = fg,
+            )
+            if ((banner.requiresLogin && onLoginClick != null) || (banner.canRetry && onRetry != null)) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (banner.requiresLogin && onLoginClick != null) {
+                        Button(
+                            onClick = onLoginClick,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = fg,
+                                contentColor = bg,
+                            ),
+                            shape = UnbShapes.tag,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text(text = "Entrar no SIGAA", style = typography.label)
+                        }
+                    }
+                    if (banner.canRetry && onRetry != null) {
+                        OutlinedButton(
+                            onClick = onRetry,
+                            border = BorderStroke(1.dp, fg),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = fg),
+                            shape = UnbShapes.tag,
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                        ) {
+                            Text(text = "Tentar novamente", style = typography.label)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun EmptyStateCard(
+    icon: ImageVector,
+    title: String,
+    body: String,
+    modifier: Modifier = Modifier,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    secondaryLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+
+    EditorialCard(modifier = modifier) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = UnbSpacing.sm),
+            horizontalAlignment = Alignment.Start,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(UnbShapes.inner)
+                    .background(colors.surfaceRaised),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = colors.ink,
+                    modifier = Modifier.size(20.dp),
+                )
+            }
+            Spacer(modifier = Modifier.height(UnbSpacing.md))
+            Text(
+                text = title,
+                style = typography.title,
+                color = colors.ink,
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = body,
+                style = typography.body,
+                color = colors.muted,
+            )
+            if (actionLabel != null && onAction != null) {
+                Spacer(modifier = Modifier.height(UnbSpacing.lg))
+                Row(horizontalArrangement = Arrangement.spacedBy(UnbSpacing.sm)) {
+                    Button(
+                        onClick = onAction,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.pillActiveBg,
+                            contentColor = colors.pillActiveInk,
+                        ),
+                        shape = UnbShapes.inner,
+                        modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+                    ) {
+                        Text(text = actionLabel, style = typography.label)
+                    }
+                    if (secondaryLabel != null && onSecondaryAction != null) {
+                        OutlinedButton(
+                            onClick = onSecondaryAction,
+                            border = BorderStroke(1.dp, colors.border),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.ink),
+                            shape = UnbShapes.inner,
+                            modifier = Modifier.defaultMinSize(minHeight = 48.dp),
+                        ) {
+                            Text(text = secondaryLabel, style = typography.label)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SkeletonCard(
+    modifier: Modifier = Modifier,
+    lineCount: Int = 4,
+) {
+    val colors = UnbTheme.colors
+    val transition = rememberInfiniteTransition(label = "skeletonPulse")
+    val alpha by transition.animateFloat(
+        initialValue = 0.45f,
+        targetValue = 0.85f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 850),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "skeletonAlpha",
+    )
+
+    EditorialCard(modifier = modifier) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.45f)
+                    .height(12.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(colors.surfaceRaised.copy(alpha = alpha)),
+            )
+            repeat(lineCount) { idx ->
+                val fraction = if (idx % 2 == 0) 0.92f else 0.72f
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(fraction)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(colors.surfaceRaised.copy(alpha = alpha)),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun InfoCalloutRow(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    val colors = UnbTheme.colors
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(UnbShapes.inner)
+            .background(colors.surfaceRaised)
+            .padding(UnbSpacing.md),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            imageVector = Icons.Rounded.Info,
+            contentDescription = null,
+            tint = colors.muted,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(16.dp),
+        )
+        Text(
+            text = text,
+            style = UnbTheme.typography.body,
+            color = colors.muted,
+        )
+    }
+}
+
+@Composable
+fun CapsuleBottomBar(
+    currentDestination: TopDestination,
+    onSelect: (TopDestination) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = UnbTheme.colors
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .padding(horizontal = UnbSpacing.lg, vertical = 10.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = colors.navBg,
+            border = BorderStroke(1.dp, colors.navBorder),
+            shadowElevation = 0.dp,
+            tonalElevation = 0.dp,
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TopDestination.entries.forEach { dest ->
+                    val selected = dest == currentDestination
+                    Box(
+                        modifier = Modifier
+                            .defaultMinSize(minWidth = 64.dp, minHeight = 48.dp)
+                            .clip(CircleShape)
+                            .background(if (selected) colors.pillActiveBg else Color.Transparent)
+                            .clickable(role = Role.Tab) { onSelect(dest) }
+                            .semantics { contentDescription = dest.label },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = dest.icon,
+                            contentDescription = dest.label,
+                            tint = if (selected) colors.pillActiveInk else colors.muted,
+                            modifier = Modifier.size(22.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UnbNavigationRail(
+    currentDestination: TopDestination,
+    onSelect: (TopDestination) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = UnbTheme.colors
+    NavigationRail(
+        modifier = modifier
+            .fillMaxHeight()
+            .border(width = 1.dp, color = colors.border),
+        containerColor = colors.navBg,
+        contentColor = colors.ink,
+    ) {
+        Spacer(modifier = Modifier.height(UnbSpacing.lg))
+        TopDestination.entries.forEach { dest ->
+            val selected = dest == currentDestination
+            NavigationRailItem(
+                selected = selected,
+                onClick = { onSelect(dest) },
+                icon = {
+                    Icon(
+                        imageVector = dest.icon,
+                        contentDescription = dest.label,
+                    )
+                },
+                label = {
+                    Text(
+                        text = dest.label,
+                        style = UnbTheme.typography.label,
+                    )
+                },
+                colors = NavigationRailItemDefaults.colors(
+                    selectedIconColor = colors.pillActiveInk,
+                    selectedTextColor = colors.ink,
+                    indicatorColor = colors.pillActiveBg,
+                    unselectedIconColor = colors.muted,
+                    unselectedTextColor = colors.muted,
+                ),
+            )
+        }
+    }
+}
+
+@Composable
+fun LocalBitmapImage(
+    localPath: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    fallback: @Composable () -> Unit = {},
+) {
+    val bitmap by produceState<ImageBitmap?>(initialValue = null, key1 = localPath) {
+        value = if (localPath.isNullOrBlank()) {
+            null
+        } else {
+            withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = File(localPath)
+                    if (!file.exists()) return@runCatching null
+                    BitmapFactory.decodeFile(file.absolutePath)?.asImageBitmap()
+                }.getOrNull()
+            }
+        }
+    }
+
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap!!,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = contentScale,
+        )
+    } else {
+        fallback()
+    }
+}
+
+@Composable
+fun RemoteBitmapImage(
+    imageUrl: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    minHeight: Dp = 200.dp,
+    onFailed: @Composable () -> Unit = {},
+) {
+    val state by produceState<Pair<Boolean, ImageBitmap?>>(initialValue = true to null, key1 = imageUrl) {
+        if (imageUrl.isNullOrBlank()) {
+            value = false to null
+            return@produceState
+        }
+        value = true to null
+        val loaded: Bitmap? = withContext(Dispatchers.IO) {
+            runCatching {
+                val connection = (URL(imageUrl).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 8_000
+                    readTimeout = 10_000
+                    instanceFollowRedirects = true
+                }
+                try {
+                    if (connection.responseCode !in 200..299) return@runCatching null
+                    connection.inputStream.use { BitmapFactory.decodeStream(it) }
+                } finally {
+                    connection.disconnect()
+                }
+            }.getOrNull()
+        }
+        value = false to loaded?.asImageBitmap()
+    }
+
+    val (loading, bitmap) = state
+    when {
+        loading -> {
+            Box(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .height(minHeight)
+                    .clip(UnbShapes.inner)
+                    .background(UnbTheme.colors.surfaceRaised),
+                contentAlignment = Alignment.Center,
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(24.dp),
+                    strokeWidth = 2.dp,
+                    color = UnbTheme.colors.ink,
+                )
+            }
+        }
+
+        bitmap != null -> {
+            Image(
+                bitmap = bitmap,
+                contentDescription = contentDescription,
+                modifier = modifier
+                    .fillMaxWidth()
+                    .clip(UnbShapes.inner),
+                contentScale = ContentScale.FillWidth,
+            )
+        }
+
+        else -> onFailed()
+    }
+}
+
+@Composable
+fun AnimatedSectionVisibility(
+    visible: Boolean,
+    content: @Composable () -> Unit,
+) {
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+        exit = fadeOut(animationSpec = tween(durationMillis = 150)),
+    ) {
+        content()
+    }
+}
