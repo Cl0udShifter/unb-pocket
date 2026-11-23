@@ -1,0 +1,28 @@
+# Android & Gradle build cache
+*.apk
+*.aab
+*.ap_
+*.dex
+.gradle/
+.kotlin/
+build/
+**/build/
+local.properties
+
+# IDE & OS
+.idea/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Keystores & secrets
+*.jks
+*.keystore
+*.p12
+*.pem
+google-services.json
+
+# Captured dumps / local fixtures with personal data
+*.har
+cookies.txt
+fixtures-private/
