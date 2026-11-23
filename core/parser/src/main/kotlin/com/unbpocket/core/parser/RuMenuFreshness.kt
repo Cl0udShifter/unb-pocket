@@ -16,7 +16,7 @@ object RuMenuFreshness {
     const val NORMAL_COOLDOWN_MILLIS: Long = 6 * 60 * 60 * 1000L
     const val EXPIRED_RETRY_COOLDOWN_MILLIS: Long = 30 * 60 * 1000L
 
-    private val brasiliaZone: ZoneId = ZoneId.of("America/Sao_Paulo")
+    val brasiliaZone: ZoneId = ZoneId.of("America/Sao_Paulo")
     private val fullDateRegex = Regex("""(\d{2}/\d{2}/\d{4})""")
     private val shortDateRegex = Regex("""(\d{2}/\d{2})(?!/\d)""")
     private val brFullFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
@@ -66,7 +66,7 @@ object RuMenuFreshness {
         return elapsed >= requiredCooldown
     }
 
-    private fun extractDatesFromText(
+    fun extractDatesFromText(
         text: String,
         referenceDate: LocalDate,
     ): List<LocalDate> {

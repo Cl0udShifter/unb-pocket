@@ -16,9 +16,12 @@ import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.NoticiaRu
 import com.unbpocket.core.model.ru.RuAutoSyncSummary
+import com.unbpocket.core.model.ru.RuNotificacaoConfig
+import com.unbpocket.core.model.ru.RuNotificacaoConteudo
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
+import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.ArquivoBaixado
 import com.unbpocket.core.model.turmas.AtualizacaoTurmaFeed
 import com.unbpocket.core.model.turmas.AvaliacaoTurma
@@ -58,6 +61,13 @@ interface RuRepository {
         alergenicos: Set<Alergenico>,
         ocultarPratos: Boolean,
     ): CoreResult<Unit>
+
+    suspend fun setNotificacoesConfig(config: RuNotificacaoConfig): CoreResult<Unit>
+
+    suspend fun prepareNotificacaoRefeicao(
+        refeicao: TipoRefeicao,
+        nowEpochMillis: Long = System.currentTimeMillis(),
+    ): CoreResult<RuNotificacaoConteudo?>
 
     fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?>
 

@@ -11,6 +11,7 @@ import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
+import com.unbpocket.core.model.ru.RuNotificacaoConfig
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.parser.CarteirinhaPdfExtractedInput
 import com.unbpocket.core.parser.PdfMenuPageData
@@ -79,6 +80,10 @@ class InMemoryRuPrefsSource : RuPrefsSource {
             alergenicosRestritos = alergenicos,
             ocultarPratosComAlergenicos = ocultarPratos,
         )
+    }
+
+    override suspend fun setNotificacoes(config: RuNotificacaoConfig) {
+        state.value = state.value.copy(notificacoes = config)
     }
 
     override suspend fun markNoticiasVistas(ids: Set<Long>) {

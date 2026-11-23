@@ -5,6 +5,7 @@ import com.unbpocket.core.data.local.CardapioSemanalRuDto
 import com.unbpocket.core.data.local.FileStore
 import com.unbpocket.core.data.local.PdfExtractor
 import com.unbpocket.core.data.local.RuAutoSyncMetaDto
+import com.unbpocket.core.data.local.RuNotificationSchedulerPort
 import com.unbpocket.core.data.local.RuPrefsSource
 import com.unbpocket.core.data.local.SaldoExtratoRuDto
 import com.unbpocket.core.data.local.SnapshotCacheStore
@@ -19,11 +20,15 @@ import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
+import com.unbpocket.core.model.ru.DiaSemanaRu
 import com.unbpocket.core.model.ru.NoticiaRu
 import com.unbpocket.core.model.ru.RuAutoSyncSummary
+import com.unbpocket.core.model.ru.RuNotificacaoConfig
+import com.unbpocket.core.model.ru.RuNotificacaoConteudo
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
+import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.network.UnbHttpTransport
 import com.unbpocket.core.parser.CampusPdfLink
 import com.unbpocket.core.parser.CasAndJsfParser
@@ -31,9 +36,11 @@ import com.unbpocket.core.parser.DiscentePortalParser
 import com.unbpocket.core.parser.RuCalculator
 import com.unbpocket.core.parser.RuMenuFreshness
 import com.unbpocket.core.parser.RuMenuPdfParser
+import com.unbpocket.core.parser.RuNotificationPlanner
 import com.unbpocket.core.parser.RuWpMenuPage
 import com.unbpocket.core.parser.RuWpParser
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,6 +56,7 @@ class RuRepositoryImpl(
     private val fileStore: FileStore,
     private val pdfExtractor: PdfExtractor,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val notificationScheduler: RuNotificationSchedulerPort = RuNotificationSchedulerPort { },
 ) : RuRepository {
     private val syncMutex = Mutex()
 
@@ -69,6 +77,46 @@ class RuRepositoryImpl(
     }.fold(
         onSuccess = { CoreResult.Success(Unit) },
         onFailure = { CoreResult.Failure(CoreError.StorageError("setAlergenicosRestritos", it.message.orEmpty())) },
+    )
+
+    override suspend fun setNotificacoesConfig(config: RuNotificacaoConfig): CoreResult<Unit> = runCatching {
+        prefsSource.setNotificacoes(config)
+        notificationScheduler.syncSchedule(config)
+    }.fold(
+        onSuccess = { CoreResult.Success(Unit) },
+        onFailure = { CoreResult.Failure(CoreError.StorageError("setNotificacoesConfig", it.message.orEmpty())) },
+    )
+
+    override suspend fun prepareNotificacaoRefeicao(
+        refeicao: TipoRefeicao,
+        nowEpochMillis: Long,
+    ): CoreResult<RuNotificacaoConteudo?> = runCatching {
+        val prefs = prefsSource.preferencias.first()
+        val today = RuMenuFreshness.localDateInBrasilia(nowEpochMillis)
+        val diaSemana = DiaSemanaRu.fromDayOfWeekIso(today.dayOfWeek.value)
+        if (diaSemana == null || !prefs.notificacoes.isEnabledFor(diaSemana, refeicao)) {
+            return@runCatching null
+        }
+
+        val campus = prefs.campusSelecionado
+        var cardapio = observeCardapio(campus).first()?.value
+        val needsRemoteCheck = cardapio == null || RuNotificationPlanner.findDayIndexForDate(cardapio, today) == null
+        if (needsRemoteCheck) {
+            val refreshed = refreshCardapio(campus, force = false)
+            if (refreshed is CoreResult.Success) {
+                cardapio = refreshed.value
+            }
+        }
+
+        RuNotificationPlanner.buildNotificationContent(
+            cardapio = cardapio,
+            preferencias = prefs,
+            refeicao = refeicao,
+            nowEpochMillis = nowEpochMillis,
+        )
+    }.fold(
+        onSuccess = { CoreResult.Success(it) },
+        onFailure = { CoreResult.Failure(CoreError.StorageError("prepareNotificacaoRefeicao", it.message.orEmpty())) },
     )
 
     override suspend fun markNoticiasVistas(ids: Set<Long>): CoreResult<Unit> = runCatching {

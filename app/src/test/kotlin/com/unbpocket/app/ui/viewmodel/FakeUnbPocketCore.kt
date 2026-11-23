@@ -25,9 +25,12 @@ import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.NoticiaRu
 import com.unbpocket.core.model.ru.RuAutoSyncSummary
+import com.unbpocket.core.model.ru.RuNotificacaoConfig
+import com.unbpocket.core.model.ru.RuNotificacaoConteudo
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
+import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.ArquivoBaixado
 import com.unbpocket.core.model.turmas.AtualizacaoTurmaFeed
 import com.unbpocket.core.model.turmas.AvaliacaoTurma
@@ -173,12 +176,25 @@ class FakeRuRepository : RuRepository {
         return CoreResult.Success(Unit)
     }
 
+    override suspend fun setNotificacoesConfig(config: RuNotificacaoConfig): CoreResult<Unit> {
+        preferencias.value = preferencias.value.copy(notificacoes = config)
+        return CoreResult.Success(Unit)
+    }
+
+    override suspend fun prepareNotificacaoRefeicao(
+        refeicao: TipoRefeicao,
+        nowEpochMillis: Long,
+    ): CoreResult<RuNotificacaoConteudo?> = CoreResult.Success(null)
+
     override fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?> =
         cardapios.map { it[campus] }
 
     override suspend fun refreshCardapio(campus: CampusRu, force: Boolean): CoreResult<CardapioSemanalRu> {
         refreshedCampuses += campus
         nextRefreshCardapioResult?.let { return it }
+        if (!force) {
+            cardapios.value[campus]?.value?.let { return CoreResult.Success(it) }
+        }
         val fallback = CardapioSemanalRu(
             campus = campus,
             semanaLabel = "Semana fake",

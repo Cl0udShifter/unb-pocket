@@ -4,6 +4,7 @@ import com.unbpocket.core.data.security.StoredCredentials
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
+import com.unbpocket.core.model.ru.RuNotificacaoConfig
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.parser.CarteirinhaPdfExtractedInput
 import com.unbpocket.core.parser.PdfMenuPageData
@@ -22,7 +23,12 @@ interface RuPrefsSource {
     val preferencias: Flow<RuPreferencias>
     suspend fun setCampus(campus: CampusRu)
     suspend fun setAlergenicos(alergenicos: Set<Alergenico>, ocultarPratos: Boolean)
+    suspend fun setNotificacoes(config: RuNotificacaoConfig)
     suspend fun markNoticiasVistas(ids: Set<Long>)
+}
+
+fun interface RuNotificationSchedulerPort {
+    fun syncSchedule(config: RuNotificacaoConfig)
 }
 
 interface FileStore {

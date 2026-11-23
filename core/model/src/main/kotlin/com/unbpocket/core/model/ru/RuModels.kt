@@ -24,6 +24,59 @@ enum class TipoRefeicao(val pageIndex: Int, val displayName: String) {
     JANTAR(2, "Jantar"),
 }
 
+enum class DiaSemanaRu(
+    val dayOfWeekIso: Int,
+    val shortLabel: String,
+    val displayName: String,
+) {
+    SEGUNDA(1, "SEG", "Segunda-feira"),
+    TERCA(2, "TER", "Terça-feira"),
+    QUARTA(3, "QUA", "Quarta-feira"),
+    QUINTA(4, "QUI", "Quinta-feira"),
+    SEXTA(5, "SEX", "Sexta-feira"),
+    SABADO(6, "SÁB", "Sábado"),
+    DOMINGO(7, "DOM", "Domingo");
+
+    companion object {
+        fun fromDayOfWeekIso(dayOfWeekIso: Int): DiaSemanaRu? =
+            entries.firstOrNull { it.dayOfWeekIso == dayOfWeekIso }
+    }
+}
+
+data class RuNotificacaoConfig(
+    val habilitado: Boolean = false,
+    val refeicoesPorDia: Map<DiaSemanaRu, Set<TipoRefeicao>> = emptyMap(),
+) {
+    fun isEnabledFor(dia: DiaSemanaRu, refeicao: TipoRefeicao): Boolean =
+        habilitado && (refeicoesPorDia[dia]?.contains(refeicao) == true)
+
+    fun hasAnySlotSelected(): Boolean =
+        habilitado && refeicoesPorDia.values.any { it.isNotEmpty() }
+}
+
+data class RuNotificacaoConteudo(
+    val campus: CampusRu,
+    val dataTexto: String,
+    val dayIndex: Int,
+    val refeicao: TipoRefeicao,
+    val titulo: String,
+    val mensagem: String,
+)
+
+data class RuDeepLinkTarget(
+    val campus: CampusRu?,
+    val dataTexto: String?,
+    val dayIndex: Int?,
+    val refeicao: TipoRefeicao,
+)
+
+object RuNotificationExtras {
+    const val EXTRA_CAMPUS_SLUG = "com.unbpocket.app.extra.RU_CAMPUS_SLUG"
+    const val EXTRA_DATA_TEXTO = "com.unbpocket.app.extra.RU_DATA_TEXTO"
+    const val EXTRA_DAY_INDEX = "com.unbpocket.app.extra.RU_DAY_INDEX"
+    const val EXTRA_MEAL_PAGE_INDEX = "com.unbpocket.app.extra.RU_MEAL_PAGE_INDEX"
+}
+
 /**
  * Ordem fixa dos 10 icones de referencia no rodape de cada pagina dos PDFs do RU.
  */
@@ -132,6 +185,7 @@ data class RuPreferencias(
     val alergenicosRestritos: Set<Alergenico> = emptySet(),
     val ocultarPratosComAlergenicos: Boolean = false,
     val noticiasVistasIds: Set<Long> = emptySet(),
+    val notificacoes: RuNotificacaoConfig = RuNotificacaoConfig(),
 )
 
 /**

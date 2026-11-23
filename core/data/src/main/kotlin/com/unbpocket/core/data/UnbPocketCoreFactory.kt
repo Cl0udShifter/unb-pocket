@@ -5,11 +5,13 @@ import com.unbpocket.core.data.local.CredentialVault
 import com.unbpocket.core.data.local.DownloadedFileStore
 import com.unbpocket.core.data.local.FileStore
 import com.unbpocket.core.data.local.PdfExtractor
+import com.unbpocket.core.data.local.RuNotificationSchedulerPort
 import com.unbpocket.core.data.local.RuPreferencesStore
 import com.unbpocket.core.data.local.RuPrefsSource
 import com.unbpocket.core.data.local.SnapshotCacheStore
 import com.unbpocket.core.data.local.SnapshotDao
 import com.unbpocket.core.data.local.UnbPocketDatabase
+import com.unbpocket.core.data.notification.RuMealAlarmScheduler
 import com.unbpocket.core.data.pdf.AndroidPdfBoxExtractor
 import com.unbpocket.core.data.repository.DiscenteRepositoryImpl
 import com.unbpocket.core.data.repository.RuRepositoryImpl
@@ -56,6 +58,7 @@ object UnbPocketCoreFactory {
             sharedInstance ?: buildCore(appContext).also { core ->
                 sharedInstance = core
                 RuMenuAutoSyncScheduler.ensureScheduled(appContext)
+                RuMealAlarmScheduler.syncFromPreferencesAsync(appContext)
             }
         }
     }
@@ -69,6 +72,7 @@ object UnbPocketCoreFactory {
             ruPrefs = RuPreferencesStore(appContext),
             fileStore = DownloadedFileStore(appContext),
             pdfExtractor = AndroidPdfBoxExtractor(appContext),
+            notificationScheduler = RuMealAlarmScheduler(appContext),
         )
     }
 
@@ -81,6 +85,7 @@ object UnbPocketCoreFactory {
         pdfExtractor: PdfExtractor,
         clockMillis: () -> Long = { System.currentTimeMillis() },
         preloadDispatcher: CoroutineDispatcher = Dispatchers.IO,
+        notificationScheduler: RuNotificationSchedulerPort = RuNotificationSchedulerPort { },
     ): UnbPocketCore {
         val cacheStore = SnapshotCacheStore(snapshotDao)
         var onLogoutCallback: () -> Unit = {}
@@ -100,6 +105,7 @@ object UnbPocketCoreFactory {
             fileStore = fileStore,
             pdfExtractor = pdfExtractor,
             clockMillis = clockMillis,
+            notificationScheduler = notificationScheduler,
         )
         val turmasRepo = TurmasRepositoryImpl(
             coordinator = coordinator,

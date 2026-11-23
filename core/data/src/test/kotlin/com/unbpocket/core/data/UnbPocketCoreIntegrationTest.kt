@@ -1,5 +1,6 @@
 package com.unbpocket.core.data
 
+import com.unbpocket.core.data.local.RuNotificationSchedulerPort
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.auth.CredentialsInput
 import com.unbpocket.core.model.common.CoreError
@@ -11,7 +12,10 @@ import com.unbpocket.core.model.discente.TipoDocumentoOficial
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
+import com.unbpocket.core.model.ru.DiaSemanaRu
 import com.unbpocket.core.model.ru.GrupoAcessoRu
+import com.unbpocket.core.model.ru.RuNotificacaoConfig
+import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.network.InMemoryCookieJar
 import com.unbpocket.core.network.NetworkEndpoints
 import com.unbpocket.core.network.UnbHttpSession
@@ -77,7 +81,9 @@ class UnbPocketCoreIntegrationTest {
         fileStore.rootDir.deleteRecursively()
     }
 
-    private fun createCore(): UnbPocketCore {
+    private fun createCore(
+        notificationScheduler: RuNotificationSchedulerPort = RuNotificationSchedulerPort { },
+    ): UnbPocketCore {
         val baseUrl = server.url("").toString().trimEnd('/')
         val jar = InMemoryCookieJar()
         val client = OkHttpClient.Builder()
@@ -104,6 +110,7 @@ class UnbPocketCoreIntegrationTest {
             fileStore = fileStore,
             pdfExtractor = pdfExtractor,
             clockMillis = { fakeClock },
+            notificationScheduler = notificationScheduler,
         )
     }
 
@@ -399,6 +406,54 @@ class UnbPocketCoreIntegrationTest {
         val updatedPrefs = core.ru.observePreferencias().first()
         assertEquals(CampusRu.GAMA, updatedPrefs.campusSelecionado)
         assertTrue(updatedPrefs.ocultarPratosComAlergenicos)
+    }
+
+    @Test
+    fun ruNotificationConfigSchedulesAndBuildsMealContentFromStructuredCache() = runTest {
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.contains("/wp-json/wp/v2/pages/12853") -> MockResponse().setResponseCode(200).setBody(
+                        """{"id":12853,"modified_gmt":"2026-11-23T08:00:00","content":{"rendered":"<h3>Cardápio Darcy Ribeiro</h3><p><a href=\"${server.url("/uploads/darcy.pdf")}\">23/11 à 29/11</a></p>"}}""",
+                    )
+                    path.contains("/uploads/darcy.pdf") -> pdfResponse("%PDF-1.4 cardapio")
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val scheduledConfigs = mutableListOf<RuNotificacaoConfig>()
+        val core = createCore(notificationScheduler = { cfg -> scheduledConfigs.add(cfg) })
+
+        pdfExtractor.ruPagesResult = CoreResult.Success(listOf(buildSyntheticRuMenuPage()))
+        val menuResult = core.ru.refreshCardapio(CampusRu.DARCY_RIBEIRO)
+        assertTrue(menuResult is CoreResult.Success)
+
+        val config = RuNotificacaoConfig(
+            habilitado = true,
+            refeicoesPorDia = mapOf(
+                DiaSemanaRu.SEGUNDA to setOf(TipoRefeicao.CAFE_DA_MANHA),
+            ),
+        )
+        assertTrue(core.ru.setNotificacoesConfig(config) is CoreResult.Success)
+        assertEquals(1, scheduledConfigs.size)
+        assertEquals(config, scheduledConfigs.last())
+        assertEquals(config, core.ru.observePreferencias().first().notificacoes)
+
+        val monday6am = ZonedDateTime.of(2026, 11, 23, 6, 0, 0, 0, ZoneId.of("America/Sao_Paulo"))
+            .toInstant().toEpochMilli()
+        val prepared = (core.ru.prepareNotificacaoRefeicao(TipoRefeicao.CAFE_DA_MANHA, monday6am) as CoreResult.Success).value
+        assertNotNull(prepared)
+        assertEquals(CampusRu.DARCY_RIBEIRO, prepared!!.campus)
+        assertEquals("23/11/2026", prepared.dataTexto)
+        assertEquals(0, prepared.dayIndex)
+        assertEquals(TipoRefeicao.CAFE_DA_MANHA, prepared.refeicao)
+        assertTrue(prepared.mensagem.contains("Banana"))
+
+        // Refeicao nao habilitada na Segunda -> null
+        val skippedMeal = (core.ru.prepareNotificacaoRefeicao(TipoRefeicao.JANTAR, monday6am) as CoreResult.Success).value
+        assertNull(skippedMeal)
     }
 
     @Test

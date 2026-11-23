@@ -13,9 +13,11 @@ import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioDiaRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
+import com.unbpocket.core.model.ru.DiaSemanaRu
 import com.unbpocket.core.model.ru.ItemCardapioRu
 import com.unbpocket.core.model.ru.NoticiaRu
 import com.unbpocket.core.model.ru.RuAutoSyncSummary
+import com.unbpocket.core.model.ru.RuDeepLinkTarget
 import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.NoticiaTurmaAva
 import com.unbpocket.core.model.turmas.NoticiaTurmaResumoAva
@@ -563,5 +565,67 @@ class ViewModelsTest {
         discenteCollector.cancel()
         turmasListCollector.cancel()
         turmaDetailCollector.cancel()
+    }
+
+    @Test
+    fun `RuViewModel toggles per-day meal notifications and resolves deep link target`() = runTest {
+        val core = FakeUnbPocketCore()
+        val menuGama = CardapioSemanalRu(
+            campus = CampusRu.GAMA,
+            semanaLabel = "23/11/2026 a 27/11/2026",
+            pdfUrl = "https://ru.unb.br/gama.pdf",
+            fallbackImageUrl = null,
+            localPdfPath = null,
+            modifiedGmt = "t1",
+            parserStatus = CardapioParserStatus.PARSED_STRUCTURED,
+            dias = listOf(
+                CardapioDiaRu("23/11/2026", "SEG", emptyMap()),
+                CardapioDiaRu("24/11/2026", "TER", emptyMap()),
+                CardapioDiaRu("25/11/2026", "QUA", emptyMap()),
+            ),
+        )
+        core.ruFake.cardapios.value = mapOf(
+            CampusRu.GAMA to SyncedData(menuGama, DataOrigin.CACHE, 1000L),
+        )
+
+        val vm = RuViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.preferencias.notificacoes.habilitado)
+        vm.toggleNotificacaoSlot(DiaSemanaRu.SEGUNDA, TipoRefeicao.CAFE_DA_MANHA)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.preferencias.notificacoes.isEnabledFor(DiaSemanaRu.SEGUNDA, TipoRefeicao.CAFE_DA_MANHA))
+        assertFalse(vm.uiState.value.preferencias.notificacoes.isEnabledFor(DiaSemanaRu.QUARTA, TipoRefeicao.ALMOCO))
+
+        vm.toggleNotificacaoDia(DiaSemanaRu.TERCA)
+        advanceUntilIdle()
+        assertEquals(
+            TipoRefeicao.entries.toSet(),
+            vm.uiState.value.preferencias.notificacoes.refeicoesPorDia[DiaSemanaRu.TERCA],
+        )
+
+        vm.setNotificacoesHabilitadas(false)
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.preferencias.notificacoes.habilitado)
+        assertTrue(
+            vm.uiState.value.preferencias.notificacoes.refeicoesPorDia[DiaSemanaRu.SEGUNDA]
+                ?.contains(TipoRefeicao.CAFE_DA_MANHA) == true,
+        )
+
+        vm.applyDeepLink(
+            RuDeepLinkTarget(
+                campus = CampusRu.GAMA,
+                dataTexto = "25/11/2026",
+                dayIndex = 0,
+                refeicao = TipoRefeicao.JANTAR,
+            ),
+        )
+        advanceUntilIdle()
+        assertEquals(CampusRu.GAMA, vm.uiState.value.preferencias.campusSelecionado)
+        assertEquals(2, vm.uiState.value.selectedDayIndex)
+        assertEquals(TipoRefeicao.JANTAR, vm.uiState.value.selectedMeal)
+
+        collector.cancel()
     }
 }

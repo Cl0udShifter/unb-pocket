@@ -63,6 +63,7 @@ import com.unbpocket.app.ui.viewmodel.UnbViewModelFactory
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.contract.UnbPocketCore
+import com.unbpocket.core.model.ru.RuDeepLinkTarget
 
 private object AppRoutes {
     const val LOGIN = "login"
@@ -80,6 +81,8 @@ fun UnbPocketApp(
     themeMode: ThemeMode,
     onToggleTheme: () -> Unit,
     modifier: Modifier = Modifier,
+    pendingRuDeepLink: RuDeepLinkTarget? = null,
+    onConsumeRuDeepLink: () -> Unit = {},
 ) {
     val factory = remember(core) { UnbViewModelFactory(core) }
     val authViewModel: AuthViewModel = viewModel(factory = factory)
@@ -119,6 +122,15 @@ fun UnbPocketApp(
                 restoreState = true
             }
         }
+    }
+
+    LaunchedEffect(pendingRuDeepLink) {
+        val target = pendingRuDeepLink ?: return@LaunchedEffect
+        showAccountSheet = false
+        discenteViewModel.resetQrCardToBalance()
+        ruViewModel.applyDeepLink(target)
+        navigateToTopDestination(TopDestination.RU)
+        onConsumeRuDeepLink()
     }
 
     val navigateToLogin: () -> Unit = {
@@ -313,6 +325,9 @@ private fun UnbNavHost(
                 onToggleAllergen = ruViewModel::toggleAllergen,
                 onSetHideRestricted = ruViewModel::setHideRestricted,
                 onClearAllergens = ruViewModel::clearAllergens,
+                onSetNotificacoesHabilitadas = ruViewModel::setNotificacoesHabilitadas,
+                onToggleNotificacaoSlot = ruViewModel::toggleNotificacaoSlot,
+                onToggleNotificacaoDia = ruViewModel::toggleNotificacaoDia,
                 onRefreshMenu = { ruViewModel.refreshMenu(force = true) },
                 onRefreshExtras = { ruViewModel.refreshPricesAndNotices(force = true) },
                 onSetCampusSheetOpen = ruViewModel::setCampusSheetOpen,

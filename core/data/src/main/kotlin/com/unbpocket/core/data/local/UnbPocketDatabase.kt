@@ -51,11 +51,16 @@ abstract class UnbPocketDatabase : RoomDatabase() {
     abstract fun snapshotDao(): SnapshotDao
 
     companion object {
+        @Volatile
+        private var instance: UnbPocketDatabase? = null
+
         fun build(context: Context): UnbPocketDatabase =
-            Room.databaseBuilder(
-                context.applicationContext,
-                UnbPocketDatabase::class.java,
-                "unb_pocket_cache.db",
-            ).build()
+            instance ?: synchronized(this) {
+                instance ?: Room.databaseBuilder(
+                    context.applicationContext,
+                    UnbPocketDatabase::class.java,
+                    "unb_pocket_cache.db",
+                ).build().also { instance = it }
+            }
     }
 }

@@ -11,7 +11,10 @@ import com.unbpocket.core.model.contract.UnbPocketCore
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioSemanalRu
+import com.unbpocket.core.model.ru.DiaSemanaRu
 import com.unbpocket.core.model.ru.NoticiaRu
+import com.unbpocket.core.model.ru.RuDeepLinkTarget
+import com.unbpocket.core.model.ru.RuNotificacaoConfig
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.model.ru.TipoRefeicao
@@ -57,6 +60,7 @@ data class RuUiState(
 
 private data class RuControlState(
     val selectedDayIndex: Int? = null,
+    val targetDayDataTexto: String? = null,
     val selectedMeal: TipoRefeicao = Formatters.defaultMealForHour(
         Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
     ),
@@ -97,8 +101,12 @@ class RuViewModel(
         controlState,
     ) { prefs, (hasResolvedMenu, cardapio), precos, noticias, ctrl ->
         val dias = cardapio?.value?.dias.orEmpty()
+        val matchedDeepLinkIdx = ctrl.targetDayDataTexto?.let { targetText ->
+            dias.indexOfFirst { it.dataTexto == targetText }.takeIf { it >= 0 }
+        }
         val resolvedDayIndex = when {
             dias.isEmpty() -> 0
+            matchedDeepLinkIdx != null -> matchedDeepLinkIdx
             ctrl.selectedDayIndex != null -> ctrl.selectedDayIndex.coerceIn(0, dias.lastIndex)
             else -> resolveTodayIndex(dias.map { it.dataTexto to it.diaSemana })
         }
@@ -149,6 +157,7 @@ class RuViewModel(
             controlState.update {
                 it.copy(
                     selectedDayIndex = null,
+                    targetDayDataTexto = null,
                     isCampusSheetOpen = false,
                     menuError = null,
                 )
@@ -158,11 +167,27 @@ class RuViewModel(
     }
 
     fun selectDay(index: Int) {
-        controlState.update { it.copy(selectedDayIndex = index) }
+        controlState.update { it.copy(selectedDayIndex = index, targetDayDataTexto = null) }
     }
 
     fun selectMeal(meal: TipoRefeicao) {
         controlState.update { it.copy(selectedMeal = meal) }
+    }
+
+    fun applyDeepLink(target: RuDeepLinkTarget) {
+        controlState.update {
+            it.copy(
+                selectedMeal = target.refeicao,
+                selectedDayIndex = target.dayIndex,
+                targetDayDataTexto = target.dataTexto,
+            )
+        }
+        val targetCampus = target.campus
+        if (targetCampus != null && targetCampus != uiState.value.preferencias.campusSelecionado) {
+            viewModelScope.launch {
+                core.ru.setCampusSelecionado(targetCampus)
+            }
+        }
     }
 
     fun toggleAllergen(alergenico: Alergenico) {
@@ -187,6 +212,51 @@ class RuViewModel(
     fun clearAllergens() {
         viewModelScope.launch {
             core.ru.setAlergenicosRestritos(emptySet(), ocultarPratos = false)
+        }
+    }
+
+    fun setNotificacoesHabilitadas(enabled: Boolean) {
+        val current = uiState.value.preferencias.notificacoes
+        val next = current.copy(habilitado = enabled)
+        viewModelScope.launch {
+            core.ru.setNotificacoesConfig(next)
+        }
+    }
+
+    fun toggleNotificacaoSlot(dia: DiaSemanaRu, refeicao: TipoRefeicao) {
+        val current = uiState.value.preferencias.notificacoes
+        val currentMeals = current.refeicoesPorDia[dia].orEmpty()
+        val nextMeals = if (refeicao in currentMeals) currentMeals - refeicao else currentMeals + refeicao
+        val nextMap = if (nextMeals.isEmpty()) {
+            current.refeicoesPorDia - dia
+        } else {
+            current.refeicoesPorDia + (dia to nextMeals)
+        }
+        val next = current.copy(
+            habilitado = current.habilitado || refeicao in nextMeals,
+            refeicoesPorDia = nextMap,
+        )
+        viewModelScope.launch {
+            core.ru.setNotificacoesConfig(next)
+        }
+    }
+
+    fun toggleNotificacaoDia(dia: DiaSemanaRu) {
+        val current = uiState.value.preferencias.notificacoes
+        val allMeals = TipoRefeicao.entries.toSet()
+        val currentMeals = current.refeicoesPorDia[dia].orEmpty()
+        val enablingDay = currentMeals != allMeals
+        val nextMap = if (enablingDay) {
+            current.refeicoesPorDia + (dia to allMeals)
+        } else {
+            current.refeicoesPorDia - dia
+        }
+        val next = current.copy(
+            habilitado = current.habilitado || enablingDay,
+            refeicoesPorDia = nextMap,
+        )
+        viewModelScope.launch {
+            core.ru.setNotificacoesConfig(next)
         }
     }
 

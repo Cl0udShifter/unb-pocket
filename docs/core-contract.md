@@ -105,7 +105,11 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
 * `PrecoGrupoRu(grupo: GrupoAcessoRu, publicoAlvo: String, cafeCentavos: Long?, almocoCentavos: Long?, jantarCentavos: Long?, porKgCentavos: Long?)`
 * `TabelaPrecosRu(resolucaoReferencia: String, modifiedGmt: String, grupos: List<PrecoGrupoRu>, formasPagamento: List<String>)`
 * `NoticiaRu(id: Long, dateIso: String, title: String, excerptText: String, contentHtml: String, link: String, featuredImageUrl: String?, anexoPdfUrls: List<String>)`
-* `RuPreferencias(campusSelecionado: CampusRu, alergenicosRestritos: Set<Alergenico>, ocultarPratosComAlergenicos: Boolean, noticiasVistasIds: Set<Long> = emptySet())`
+* `RuPreferencias(campusSelecionado: CampusRu, alergenicosRestritos: Set<Alergenico>, ocultarPratosComAlergenicos: Boolean, noticiasVistasIds: Set<Long> = emptySet(), notificacoes: RuNotificacaoConfig = RuNotificacaoConfig())`
+* `DiaSemanaRu`: `SEGUNDA(1)` .. `DOMINGO(7)` (`dayOfWeekIso`, `shortLabel`, `displayName`).
+* `RuNotificacaoConfig(habilitado: Boolean = false, refeicoesPorDia: Map<DiaSemanaRu, Set<TipoRefeicao>> = emptyMap())` (com helpers `isEnabledFor(dia, refeicao)` e `hasAnySlotSelected()`; inicia desligado por padrao).
+* `RuNotificacaoConteudo(campus: CampusRu, dataTexto: String, dayIndex: Int, refeicao: TipoRefeicao, titulo: String, mensagem: String)`
+* `RuDeepLinkTarget(campus: CampusRu?, dataTexto: String?, dayIndex: Int?, refeicao: TipoRefeicao)` e chaves em `RuNotificationExtras` (`EXTRA_CAMPUS_SLUG`, `EXTRA_DATA_TEXTO`, `EXTRA_DAY_INDEX`, `EXTRA_MEAL_PAGE_INDEX`) para abertura direta da tela do cardapio no dia e refeicao da notificacao.
 * `RuAutoSyncSummary(checkedAtEpochMillis: Long, skippedDueToCooldown: Boolean, updatedCampi: Set<CampusRu>, upToDateCampi: Set<CampusRu>, failedCampi: Map<CampusRu, CoreError>, tabelaPrecosAtualizada: Boolean = false, noticiasAtualizadas: Boolean = false)` (com propriedade computada `anyUpdated: Boolean`)
 
 ### 3.3 Turmas e Turma Virtual (`com.unbpocket.core.model.turmas`)
@@ -175,6 +179,10 @@ interface UnbPocketCore {
 * `fun observePreferencias(): Flow<RuPreferencias>`
 * `suspend fun setCampusSelecionado(campus: CampusRu): CoreResult<Unit>`
 * `suspend fun setAlergenicosRestritos(alergenicos: Set<Alergenico>, ocultarPratos: Boolean): CoreResult<Unit>`
+* `suspend fun setNotificacoesConfig(config: RuNotificacaoConfig): CoreResult<Unit>`
+  * Persiste `RuNotificacaoConfig` no DataStore e sincroniza o agendamento de alarmes locais via `AlarmManager` (`RuMealAlarmScheduler` + `RuNotificationAlarmReceiver`, com re-agendamento automatico apos boot, troca de horario e execucao mesmo com o app fechado) para disparar `1h` antes de cada refeicao habilitada (`06h` Cafe da Manha, `10h` Almoco, `16h` Jantar no fuso `America/Sao_Paulo`).
+* `suspend fun prepareNotificacaoRefeicao(refeicao: TipoRefeicao, nowEpochMillis: Long = System.currentTimeMillis()): CoreResult<RuNotificacaoConteudo?>`
+  * Verifica se `(dia atual, refeicao)` esta ativo em `RuNotificacaoConfig`; caso necessario tenta sincronizar o cardapio do campus ativo e monta o resumo com os pratos principais aplicando `alergenicosRestritos` e `ocultarPratosComAlergenicos`. Retorna `null` (sem disparar notificacao) quando a refeicao estiver desativada no dia ou nao houver cardapio estruturado (`PARSED_STRUCTURED` com pratos para a data).
 * `fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?>`
 * `suspend fun refreshCardapio(campus: CampusRu, force: Boolean = false): CoreResult<CardapioSemanalRu>`
 * `suspend fun syncCardapiosIfNeeded(forceCheck: Boolean = false, includeExtras: Boolean = false): CoreResult<RuAutoSyncSummary>`
