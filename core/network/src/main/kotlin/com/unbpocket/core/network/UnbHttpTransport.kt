@@ -8,6 +8,8 @@ import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
 import java.io.IOException
+import java.net.URLDecoder
+import java.nio.charset.StandardCharsets
 
 /**
  * Endpoints base configuraveis para producao e testes isolados com MockWebServer.
@@ -55,7 +57,10 @@ class HttpPayload(
     fun extractAttachmentFileName(fallbackName: String): String {
         val disposition = contentDisposition.orEmpty()
         val utf8Match = Regex("""filename\*=UTF-8''([^;\r\n]+)""", RegexOption.IGNORE_CASE).find(disposition)
-        if (utf8Match != null) return utf8Match.groupValues[1].trim('"', ' ')
+        if (utf8Match != null) {
+            val raw = utf8Match.groupValues[1].trim('"', ' ')
+            return runCatching { URLDecoder.decode(raw, StandardCharsets.UTF_8.name()) }.getOrDefault(raw)
+        }
         val stdMatch = Regex("""filename="?([^";\r\n]+)"?""", RegexOption.IGNORE_CASE).find(disposition)
         if (stdMatch != null) return stdMatch.groupValues[1].trim('"', ' ')
         return fallbackName

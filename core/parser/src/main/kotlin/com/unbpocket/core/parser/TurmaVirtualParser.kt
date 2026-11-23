@@ -608,6 +608,13 @@ object TurmaVirtualParser {
         viewState: String,
         materialRefs: MutableMap<String, ParsedAvaMaterialRef>,
     ): List<TopicoAulaAva> {
+        val avaHiddenInputs = doc.select("form#formAva input[type=hidden]")
+            .mapNotNull { input ->
+                val name = input.attr("name").trim()
+                if (name.isEmpty()) null else name to input.attr("value")
+            }
+            .toMap()
+
         val containers = doc.select("#formAva div.topico-aula, div.topico-aula")
         return containers.mapIndexed { index, el ->
             val tituloRaw = el.selectFirst("div.titulo")?.text()?.trim().orEmpty()
@@ -624,19 +631,19 @@ object TurmaVirtualParser {
                 val paramsMap = CasAndJsfParser.extractJsfCljsParams(onClick)
                 val hashId = paramsMap["id"] ?: return@mapNotNull null
                 val itemContainer = link.closest("div.item")
-                val iconSrc = itemContainer?.selectFirst("img")?.attr("src").orEmpty()
-                val ext = iconSrc.substringAfterLast('/').substringBefore('.').ifEmpty { "file" }
+                val linkNome = link.text().trim()
+                val ext = resolveMaterialExtension(itemContainer, linkNome)
 
-                val fullParams = linkedMapOf(
-                    "formAva" to "formAva",
-                    "formAva:idTopicoSelecionado" to index.toString(),
-                )
+                val fullParams = linkedMapOf<String, String>()
+                fullParams.putAll(avaHiddenInputs)
+                fullParams["formAva"] = "formAva"
+                fullParams["formAva:idTopicoSelecionado"] = index.toString()
                 fullParams.putAll(paramsMap)
                 if (viewState.isNotEmpty()) fullParams["javax.faces.ViewState"] = viewState
 
                 val material = MaterialAulaAva(
                     materialId = hashId,
-                    nome = link.text().trim(),
+                    nome = linkNome,
                     tipoExtensao = ext,
                     topicoIndex = index,
                 )
@@ -651,6 +658,37 @@ object TurmaVirtualParser {
                 materiais = materiais,
             )
         }
+    }
+
+    private fun resolveMaterialExtension(itemContainer: Element?, linkNome: String): String {
+        val iconImg = itemContainer?.selectFirst("img[src*='/porta_arquivos/icones/'], img[src*='/icones/']")
+            ?: itemContainer?.select("img")?.firstOrNull { img ->
+                val src = img.attr("src").lowercase()
+                src.isNotBlank() &&
+                    !src.contains("indicator") &&
+                    !src.contains("spacer") &&
+                    !src.contains("loading") &&
+                    !src.contains("spinner") &&
+                    !src.contains("ajax")
+            }
+        val iconSrc = iconImg?.attr("src").orEmpty()
+        val rawIconExt = iconSrc
+            .substringAfterLast('/')
+            .substringBefore('?')
+            .substringBefore('.')
+            .trim()
+            .lowercase()
+        val sanitizedIconExt = rawIconExt.takeUnless {
+            it.isEmpty() || it in setOf("indicator", "spacer", "loading", "spinner", "ajax", "blank")
+        }
+        if (sanitizedIconExt != null) return sanitizedIconExt
+
+        return linkNome
+            .substringAfterLast('.', "")
+            .trim()
+            .lowercase()
+            .takeIf { it.length in 2..5 && it.all { ch -> ch.isLetterOrDigit() } }
+            .orEmpty()
     }
 
     private fun parseFormMenuActions(doc: Document, viewState: String): Map<String, Map<String, String>> {

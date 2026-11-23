@@ -1,10 +1,12 @@
 package com.unbpocket.app.ui.turmas
 
+import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,6 +29,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Grading
 import androidx.compose.material.icons.rounded.Book
+import androidx.compose.material.icons.rounded.CheckCircleOutline
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.EventAvailable
@@ -34,11 +38,14 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,6 +78,7 @@ import com.unbpocket.app.ui.theme.UnbTheme
 import com.unbpocket.app.ui.viewmodel.TurmaDetailTab
 import com.unbpocket.app.ui.viewmodel.TurmaVirtualUiState
 import com.unbpocket.core.model.turmas.AnexoArquivoSigaa
+import com.unbpocket.core.model.turmas.ArquivoBaixado
 import com.unbpocket.core.model.turmas.AvaliacaoTurma
 import com.unbpocket.core.model.turmas.MapaFrequenciaTurma
 import com.unbpocket.core.model.turmas.MaterialAulaAva
@@ -97,16 +105,6 @@ fun TurmaVirtualScreen(
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
     val context = LocalContext.current
-
-    LaunchedEffect(uiState.downloadedFileEvent) {
-        val downloaded = uiState.downloadedFileEvent ?: return@LaunchedEffect
-        FileOpener.openLocalFile(
-            context = context,
-            localPath = downloaded.localFilePath,
-            mimeType = downloaded.mimeType,
-        )
-        onConsumeDownloadedFile()
-    }
 
     val detalhe = uiState.detalhe?.value
     val title = detalhe?.nomeDisciplina
@@ -156,6 +154,58 @@ fun TurmaVirtualScreen(
             },
         )
 
+        AnimatedVisibility(
+            visible = uiState.downloadedFileEvent != null,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            uiState.downloadedFileEvent?.let { downloaded ->
+                DownloadSuccessBanner(
+                    downloaded = downloaded,
+                    onOpen = {
+                        val opened = FileOpener.openLocalFile(
+                            context = context,
+                            localPath = downloaded.localFilePath,
+                            mimeType = downloaded.mimeType,
+                        )
+                        if (!opened) {
+                            Toast.makeText(
+                                context,
+                                "Nenhum app disponível para abrir ${downloaded.nomeArquivo}.",
+                                Toast.LENGTH_SHORT,
+                            ).show()
+                        }
+                    },
+                    onDismiss = onConsumeDownloadedFile,
+                    modifier = Modifier.padding(
+                        start = UnbSpacing.lg,
+                        end = UnbSpacing.lg,
+                        bottom = UnbSpacing.sm,
+                    ),
+                )
+            }
+        }
+
+        AnimatedVisibility(
+            visible = uiState.detailError != null,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            uiState.detailError?.let { err ->
+                ErrorBanner(
+                    banner = err,
+                    onRetry = if (err.canRetry) onRefreshTab else null,
+                    onLoginClick = if (err.requiresLogin) onOpenLogin else null,
+                    onDismiss = onDismissError,
+                    modifier = Modifier.padding(
+                        start = UnbSpacing.lg,
+                        end = UnbSpacing.lg,
+                        bottom = UnbSpacing.sm,
+                    ),
+                )
+            }
+        }
+
         UnbPullToRefreshBox(
             isRefreshing = uiState.isRefreshingDetail,
             onRefresh = onRefreshTab,
@@ -173,17 +223,6 @@ fun TurmaVirtualScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(UnbSpacing.md),
             ) {
-                if (uiState.detailError != null) {
-                    item(key = "detail_error") {
-                        ErrorBanner(
-                            banner = uiState.detailError,
-                            onRetry = if (uiState.detailError.canRetry) onRefreshTab else null,
-                            onLoginClick = if (uiState.detailError.requiresLogin) onOpenLogin else null,
-                            onDismiss = onDismissError,
-                        )
-                    }
-                }
-
                 item(key = "detail_tabs") {
                     SegmentedPillBar(
                         options = listOf("Tópicos", "Notícias", "Faltas", "Notas"),
@@ -686,6 +725,13 @@ private fun MaterialRow(
 ) {
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
+    val extDisplay = material.tipoExtensao
+        .trim()
+        .takeIf {
+            it.isNotBlank() &&
+                !it.equals("indicator", ignoreCase = true) &&
+                !it.equals("file", ignoreCase = true)
+        }
 
     InnerTile(
         modifier = Modifier.fillMaxWidth(),
@@ -713,9 +759,15 @@ private fun MaterialRow(
                         style = typography.title,
                         color = colors.ink,
                     )
-                    if (material.tipoExtensao.isNotBlank()) {
+                    if (isDownloading) {
                         Text(
-                            text = material.tipoExtensao.uppercase(),
+                            text = "Baixando arquivo...",
+                            style = typography.label,
+                            color = colors.muted,
+                        )
+                    } else if (extDisplay != null) {
+                        Text(
+                            text = extDisplay.uppercase(),
                             style = typography.mono,
                             color = colors.muted,
                         )
@@ -725,8 +777,9 @@ private fun MaterialRow(
             Spacer(modifier = Modifier.width(8.dp))
             if (isDownloading) {
                 SkeletonInlineBar(
-                    width = 20.dp,
+                    width = 22.dp,
                     height = 6.dp,
+                    color = colors.muted,
                 )
             } else {
                 Icon(
@@ -736,6 +789,17 @@ private fun MaterialRow(
                     modifier = Modifier.size(20.dp),
                 )
             }
+        }
+        if (isDownloading) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .clip(CircleShape),
+                color = colors.ink,
+                trackColor = colors.border,
+            )
         }
     }
 }
@@ -841,17 +905,26 @@ private fun AnexoRow(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            Text(
-                text = anexo.nomeArquivo,
-                style = typography.label,
-                color = colors.ink,
-                modifier = Modifier.weight(1f),
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = anexo.nomeArquivo,
+                    style = typography.label,
+                    color = colors.ink,
+                )
+                if (isDownloading) {
+                    Text(
+                        text = "Baixando anexo...",
+                        style = typography.label,
+                        color = colors.muted,
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(8.dp))
             if (isDownloading) {
                 SkeletonInlineBar(
-                    width = 18.dp,
+                    width = 20.dp,
                     height = 6.dp,
+                    color = colors.muted,
                 )
             } else {
                 Icon(
@@ -862,7 +935,108 @@ private fun AnexoRow(
                 )
             }
         }
+        if (isDownloading) {
+            Spacer(modifier = Modifier.height(8.dp))
+            LinearProgressIndicator(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .clip(CircleShape),
+                color = colors.ink,
+                trackColor = colors.border,
+            )
+        }
     }
+}
+
+@Composable
+private fun DownloadSuccessBanner(
+    downloaded: ArquivoBaixado,
+    onOpen: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+    val folderText = downloaded.downloadPublicoInfo ?: "Armazenamento interno do app"
+    val sizeText = formatBytesLabel(downloaded.tamanhoBytes)
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = UnbShapes.card,
+        color = colors.infoBg,
+        border = BorderStroke(1.dp, colors.infoInk.copy(alpha = 0.3f)),
+        shadowElevation = 0.dp,
+    ) {
+        Column(modifier = Modifier.padding(UnbSpacing.md)) {
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.CheckCircleOutline,
+                        contentDescription = null,
+                        tint = colors.infoInk,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = "Download concluído",
+                        style = typography.title,
+                        color = colors.infoInk,
+                    )
+                }
+                IconButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.size(32.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Close,
+                        contentDescription = "Fechar aviso de download",
+                        tint = colors.infoInk,
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = downloaded.nomeArquivo,
+                style = typography.title,
+                color = colors.infoInk,
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Salvo em $folderText · $sizeText",
+                style = typography.label,
+                color = colors.infoInk,
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Button(
+                onClick = onOpen,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.infoInk,
+                    contentColor = colors.infoBg,
+                ),
+                shape = UnbShapes.tag,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+            ) {
+                Text(text = "Abrir", style = typography.label)
+            }
+        }
+    }
+}
+
+private fun formatBytesLabel(bytes: Long): String {
+    if (bytes < 1024L) return "$bytes B"
+    val kb = bytes / 1024.0
+    if (kb < 1024.0) return String.format(java.util.Locale("pt", "BR"), "%.0f KB", kb)
+    val mb = kb / 1024.0
+    return String.format(java.util.Locale("pt", "BR"), "%.1f MB", mb)
 }
 
 @Composable

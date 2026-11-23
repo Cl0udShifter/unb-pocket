@@ -18,6 +18,7 @@ import com.unbpocket.core.model.turmas.ArquivoBaixado
 import com.unbpocket.core.model.turmas.AtualizacaoTurmaFeed
 import com.unbpocket.core.model.turmas.AvaliacaoTurma
 import com.unbpocket.core.model.turmas.MapaFrequenciaTurma
+import com.unbpocket.core.model.turmas.MaterialAulaAva
 import com.unbpocket.core.model.turmas.NotasParciaisTurma
 import com.unbpocket.core.model.turmas.NoticiaTurmaAva
 import com.unbpocket.core.model.turmas.TarefaTurma
@@ -384,6 +385,36 @@ class TurmasRepositoryImpl(
         frontEndIdTurma: String,
         materialId: String,
     ): CoreResult<ArquivoBaixado> = coordinator.withAuthenticatedJsf { nav ->
+        val directRef = if (currentAvaHomeTurmaId == frontEndIdTurma) {
+            runtimeAvaCache[frontEndIdTurma]?.materialRefs?.get(materialId)
+        } else {
+            null
+        }
+
+        if (directRef != null) {
+            when (val directRes = nav.postAvaForm(directRef.formParams)) {
+                is CoreResult.Success -> {
+                    if (!isUnexpectedHtmlAttachment(directRes.value, directRef.material.tipoExtensao)) {
+                        return@withAuthenticatedJsf saveMaterialPayload(
+                            frontEndIdTurma = frontEndIdTurma,
+                            material = directRef.material,
+                            payload = directRes.value,
+                        )
+                    }
+                }
+
+                is CoreResult.Failure -> {
+                    if (directRes.error is CoreError.SessionExpired ||
+                        directRes.error is CoreError.NetworkUnavailable
+                    ) {
+                        currentAvaHomeTurmaId = null
+                        return@withAuthenticatedJsf directRes
+                    }
+                }
+            }
+            currentAvaHomeTurmaId = null
+        }
+
         val (avaHome, _) = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
             is CoreResult.Failure -> return@withAuthenticatedJsf entered
             is CoreResult.Success -> entered.value
@@ -399,9 +430,19 @@ class TurmasRepositoryImpl(
             is CoreResult.Success -> res.value
         }
 
-        saveDownloadedPayload(
+        if (isUnexpectedHtmlAttachment(payload, ref.material.tipoExtensao)) {
+            currentAvaHomeTurmaId = null
+            return@withAuthenticatedJsf CoreResult.Failure(
+                CoreError.ParseError(
+                    source = "ava/material",
+                    reason = "O SIGAA nao retornou o arquivo solicitado para ${ref.material.nome}.",
+                ),
+            )
+        }
+
+        saveMaterialPayload(
             frontEndIdTurma = frontEndIdTurma,
-            fallbackName = "${ref.material.nome}.${ref.material.tipoExtensao}",
+            material = ref.material,
             payload = payload,
         )
     }
@@ -558,22 +599,65 @@ class TurmasRepositoryImpl(
         )
     }
 
+    private suspend fun saveMaterialPayload(
+        frontEndIdTurma: String,
+        material: MaterialAulaAva,
+        payload: com.unbpocket.core.network.HttpPayload,
+    ): CoreResult<ArquivoBaixado> {
+        val cleanExt = material.tipoExtensao
+            .trim()
+            .lowercase()
+            .takeIf {
+                it.isNotEmpty() &&
+                    it !in setOf("indicator", "file", "spacer", "loading", "spinner", "ajax", "blank")
+            }
+            ?: if (payload.isPdf()) "pdf" else null
+        val fallbackName = if (cleanExt != null && !material.nome.endsWith(".$cleanExt", ignoreCase = true)) {
+            "${material.nome}.$cleanExt"
+        } else {
+            material.nome
+        }
+        return saveDownloadedPayload(
+            frontEndIdTurma = frontEndIdTurma,
+            fallbackName = fallbackName,
+            payload = payload,
+        )
+    }
+
+    private fun isUnexpectedHtmlAttachment(
+        payload: com.unbpocket.core.network.HttpPayload,
+        expectedExt: String,
+    ): Boolean {
+        if (expectedExt.lowercase() in setOf("html", "htm")) return false
+        val isHtml = payload.contentType?.contains("text/html", ignoreCase = true) == true
+        if (!isHtml) return false
+        val disposition = payload.contentDisposition.orEmpty()
+        return !disposition.contains("attachment", ignoreCase = true) &&
+            !disposition.contains("filename", ignoreCase = true)
+    }
+
     private suspend fun saveDownloadedPayload(
         frontEndIdTurma: String,
         fallbackName: String,
         payload: com.unbpocket.core.network.HttpPayload,
     ): CoreResult<ArquivoBaixado> {
-        val fileName = payload.extractAttachmentFileName(fallbackName)
-        val mime = payload.contentType?.substringBefore(';')?.trim().orEmpty()
-            .ifEmpty { "application/octet-stream" }
+        val rawName = payload.extractAttachmentFileName(fallbackName)
+        val fileName = if (!rawName.contains('.') && payload.isPdf()) "$rawName.pdf" else rawName
+        val mime = resolveMimeType(
+            headerContentType = payload.contentType,
+            fileName = fileName,
+            isPdf = payload.isPdf(),
+        )
 
         return runCatching {
             val file = fileStore.saveBytes("materiais/$frontEndIdTurma", fileName, payload.bytes)
+            val publicInfo = fileStore.saveToPublicDownloads(fileName, mime, payload.bytes)
             ArquivoBaixado(
                 nomeArquivo = file.name,
                 mimeType = mime,
                 localFilePath = file.absolutePath,
                 tamanhoBytes = file.length(),
+                downloadPublicoInfo = publicInfo,
             )
         }.fold(
             onSuccess = { CoreResult.Success(it) },
@@ -583,6 +667,39 @@ class TurmasRepositoryImpl(
                 )
             },
         )
+    }
+
+    private fun resolveMimeType(
+        headerContentType: String?,
+        fileName: String,
+        isPdf: Boolean,
+    ): String {
+        val rawHeader = headerContentType?.substringBefore(';')?.trim().orEmpty()
+        if (rawHeader.isNotBlank() &&
+            !rawHeader.equals("application/octet-stream", ignoreCase = true) &&
+            !rawHeader.equals("application/force-download", ignoreCase = true)
+        ) {
+            return rawHeader
+        }
+        if (isPdf) return "application/pdf"
+        return when (fileName.substringAfterLast('.', "").lowercase()) {
+            "pdf" -> "application/pdf"
+            "zip" -> "application/zip"
+            "rar" -> "application/vnd.rar"
+            "7z" -> "application/x-7z-compressed"
+            "doc" -> "application/msword"
+            "docx" -> "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "xls" -> "application/vnd.ms-excel"
+            "xlsx" -> "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "ppt" -> "application/vnd.ms-powerpoint"
+            "pptx" -> "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+            "txt" -> "text/plain"
+            "csv" -> "text/csv"
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "mp4" -> "video/mp4"
+            else -> rawHeader.ifBlank { "application/octet-stream" }
+        }
     }
 
     private fun findAtestadoMatch(

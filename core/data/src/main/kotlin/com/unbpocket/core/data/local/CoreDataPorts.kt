@@ -27,6 +27,7 @@ interface RuPrefsSource {
 
 interface FileStore {
     suspend fun saveBytes(subdir: String, fileName: String, bytes: ByteArray): File
+    suspend fun saveToPublicDownloads(fileName: String, mimeType: String, bytes: ByteArray): String? = null
     suspend fun saveRgbAsPng(subdir: String, fileName: String, image: RgbImageBuffer): File
     suspend fun clearSigaaUserFiles()
     suspend fun clearAll()

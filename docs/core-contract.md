@@ -126,7 +126,7 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
 * `NotasParciaisTurma(notasDisponiveis: Boolean, mensagemAviso: String?, unidades: List<UnidadeNotaTurma>, mediaFinal: String?, faltas: Int?, situacao: String?)`
 * `AvaliacaoTurma(dataTexto: String, horaTexto: String?, descricao: String)`
 * `TarefaTurma(titulo: String, periodoEntrega: String, notaMaxima: String?, possuiArquivo: Boolean, emGrupo: Boolean)`
-* `ArquivoBaixado(nomeArquivo: String, mimeType: String, localFilePath: String, tamanhoBytes: Long)`
+* `ArquivoBaixado(nomeArquivo: String, mimeType: String, localFilePath: String, tamanhoBytes: Long, downloadPublicoInfo: String? = null)`
 
 ### 3.4 Discente, Carteirinha e Documentos (`com.unbpocket.core.model.discente`)
 * `PerfilDiscente(idDiscente: String, matricula: String, nomeCompleto: String, nomeAbreviado: String, bioPerfil: String?, fotoUrl: String?, semestreAtual: String, semestreEntrada: String, unidadeDepartamento: String, curso: String, nivel: String, status: String, emailTruncado: String?, idCursoPortalPublico: String?)`

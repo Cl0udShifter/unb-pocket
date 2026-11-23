@@ -97,6 +97,16 @@ class TempFileStore : FileStore {
         return File(dir, fileName).apply { writeBytes(bytes) }
     }
 
+    override suspend fun saveToPublicDownloads(
+        fileName: String,
+        mimeType: String,
+        bytes: ByteArray,
+    ): String {
+        val dir = File(rootDir, "public_downloads/UnB Pocket").apply { mkdirs() }
+        val file = File(dir, fileName).apply { writeBytes(bytes) }
+        return "Downloads/UnB Pocket/${file.name}"
+    }
+
     override suspend fun saveRgbAsPng(subdir: String, fileName: String, image: RgbImageBuffer): File {
         val dir = File(rootDir, subdir).apply { mkdirs() }
         // Grava cabecalho PNG minimo + payload para testes JVM sem depender de android.graphics.Bitmap

@@ -260,4 +260,51 @@ class TurmaVirtualParserTest {
         assertEquals("10/11/2026 08:00", historico[2].dataHoraTexto)
         assertEquals("Aviso de laboratório", historico[2].titulo)
     }
+
+    @Test
+    fun ignoresIndicatorGifWhenResolvingMaterialFileExtension() {
+        val avaHtml = """
+            <html><body>
+              <div id="nomeTurma">
+                <span id="linkCodigoTurma">ENE0295 - </span>
+                <span id="linkNomeTurma">LABORATORIO</span>
+                <span id="linkPeriodoTurma">- T04 (2026.2)</span>
+              </div>
+              <input type="hidden" name="idTurma" value="1616625" />
+              <input type="hidden" name="javax.faces.ViewState" value="j_id4" />
+              <form id="formAva">
+                <input type="hidden" name="formAva:extraHidden" value="ok" />
+                <div class="topico-aula">
+                  <div class="titulo">Experimentos (10/08/2026 - 14/12/2026)</div>
+                  <div class="conteudotopico">
+                    <div class="item">
+                      <img src="/sigaa/img/indicator.gif" style="display:none" />
+                      <img src="/sigaa/img/porta_arquivos/icones/zip.png" />
+                      <a onclick="jsfcljs(document.getElementById('formAva'),{'formAva:m1':'formAva:m1','id':'HASH_1'},'_blank')">Experimento 01</a>
+                    </div>
+                    <div class="item">
+                      <img src="/sigaa/img/indicator.gif" />
+                      <a onclick="jsfcljs(document.getElementById('formAva'),{'formAva:m2':'formAva:m2','id':'HASH_2'},'_blank')">Experimento 02.pdf</a>
+                    </div>
+                    <div class="item">
+                      <img src="/sigaa/img/indicator.gif" />
+                      <a onclick="jsfcljs(document.getElementById('formAva'),{'formAva:m3':'formAva:m3','id':'HASH_3'},'_blank')">Roteiro 03</a>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </body></html>
+        """.trimIndent()
+
+        val parsed = (TurmaVirtualParser.parseAvaHome(avaHtml, "FE_1") as CoreResult.Success).value
+        val materiais = parsed.detalhe.topicosAula.single().materiais
+        assertEquals(3, materiais.size)
+        assertEquals("zip", materiais[0].tipoExtensao)
+        assertEquals("pdf", materiais[1].tipoExtensao)
+        assertEquals("", materiais[2].tipoExtensao)
+
+        val ref = parsed.materialRefs.getValue("HASH_1")
+        assertEquals("ok", ref.formParams["formAva:extraHidden"])
+        assertEquals("0", ref.formParams["formAva:idTopicoSelecionado"])
+    }
 }

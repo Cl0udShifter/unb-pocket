@@ -149,4 +149,5 @@ data class ArquivoBaixado(
     val mimeType: String,
     val localFilePath: String,
     val tamanhoBytes: Long,
+    val downloadPublicoInfo: String? = null,
 )

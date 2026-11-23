@@ -894,6 +894,91 @@ class UnbPocketCoreIntegrationTest {
         assertEquals(2, avaPosts.get())
     }
 
+    @Test
+    fun downloadMaterialExportsToDownloadsAndRejectsUnexpectedHtmlPage() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        val discentePosts = AtomicInteger(0)
+        val avaPosts = AtomicInteger(0)
+        var forceUnexpectedHtml = false
+
+        val avaHtmlWithMaterial = """
+            <html><body>
+              <div id="nomeTurma"><span id="linkCodigoTurma">ENE0295 - </span><span id="linkNomeTurma">LAB</span><span id="linkPeriodoTurma">- T04</span></div>
+              <input type="hidden" name="idTurma" value="1616625" />
+              <input type="hidden" name="javax.faces.ViewState" value="j_id4" />
+              <form id="formAva">
+                <div class="topico-aula">
+                  <div class="titulo">Experimentos (10/08/2026 - 14/12/2026)</div>
+                  <div class="conteudotopico">
+                    <div class="item">
+                      <img src="/sigaa/img/indicator.gif" />
+                      <img src="/sigaa/img/porta_arquivos/icones/zip.png" />
+                      <a onclick="jsfcljs(document.getElementById('formAva'),{'formAva:mat1':'formAva:mat1','id':'HASH_ZIP_1'},'_blank')">Experimento 01</a>
+                    </div>
+                  </div>
+                </div>
+              </form>
+            </body></html>
+        """.trimIndent()
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/verPortalDiscente.do")
+                    path.startsWith("/sigaa/verPortalDiscente.do") ->
+                        latin1Response(discenteHomeHtml())
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        discentePosts.incrementAndGet()
+                        latin1Response(avaHtmlWithMaterial)
+                    }
+                    path.startsWith("/sigaa/ava/index.jsf") && request.method == "POST" -> {
+                        avaPosts.incrementAndGet()
+                        if (forceUnexpectedHtml) {
+                            latin1Response("<html><body><div>ViewExpired ou erro HTML</div></body></html>")
+                        } else {
+                            MockResponse()
+                                .setResponseCode(200)
+                                .setHeader("Content-Type", "application/octet-stream")
+                                .setHeader("Content-Disposition", "attachment; filename*=UTF-8''Exp%2001.zip")
+                                .setBody("PK_FAKE_ZIP_BYTES")
+                        }
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        val detalhe = (core.turmas.refreshTurmaDetalhe(frontEndId) as CoreResult.Success).value
+        assertEquals("zip", detalhe.topicosAula.single().materiais.single().tipoExtensao)
+
+        discentePosts.set(0)
+        avaPosts.set(0)
+
+        // 1. Download via fast-path (1 POST no AVA), inferindo MIME zip, decodificando nome e salvando em Downloads/UnB Pocket
+        val downloaded = (core.turmas.downloadMaterial(frontEndId, "HASH_ZIP_1") as CoreResult.Success).value
+        assertEquals("Exp 01.zip", downloaded.nomeArquivo)
+        assertEquals("application/zip", downloaded.mimeType)
+        assertEquals("Downloads/UnB Pocket/Exp 01.zip", downloaded.downloadPublicoInfo)
+        assertEquals(0, discentePosts.get())
+        assertEquals(1, avaPosts.get())
+        assertTrue(File(downloaded.localFilePath).exists())
+        assertTrue(File(fileStore.rootDir, "public_downloads/UnB Pocket/Exp 01.zip").exists())
+
+        // 2. Resposta HTML inesperada no lugar de arquivo aciona reentrada e falha explicitamente sem corromper cache
+        forceUnexpectedHtml = true
+        val htmlErr = core.turmas.downloadMaterial(frontEndId, "HASH_ZIP_1")
+        assertTrue(htmlErr is CoreResult.Failure && htmlErr.error is CoreError.ParseError)
+        assertEquals(1, discentePosts.get())
+    }
+
     private fun redirect(location: String) =
         MockResponse().setResponseCode(302).setHeader("Location", location)
 
