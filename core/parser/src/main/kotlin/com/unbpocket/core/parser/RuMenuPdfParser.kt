@@ -84,8 +84,9 @@ object RuMenuPdfParser {
                 }
             }
 
-            val dayCols = detectDayColumns(cellTexts)
+            val (dayCols, headerRowsEnd) = detectDayColumns(cellTexts)
             if (dayCols.isEmpty()) continue
+            val categoryCol = detectCategoryColumn(grid, cellTexts, dayCols.keys.min())
 
             val classifiedIcons = page.images
                 .filter { it.top in 85f..520f }
@@ -98,12 +99,9 @@ object RuMenuPdfParser {
                 }
 
             var lastCategory: String? = null
-            val headerRowsEnd = minOf(4, cellTexts.size)
             for (r in headerRowsEnd until cellTexts.size) {
                 val rowTexts = cellTexts[r]
-                val category = (1 until minOf(4, rowTexts.size))
-                    .firstNotNullOfOrNull { idx -> rowTexts[idx].takeIf { it.isNotBlank() } }
-                    ?: lastCategory
+                val category = rowTexts.getOrNull(categoryCol)?.takeIf { it.isNotBlank() } ?: lastCategory
                 if (category.isNullOrBlank()) continue
                 lastCategory = category
 
@@ -242,9 +240,10 @@ object RuMenuPdfParser {
         return inside.joinToString(" ") { it.text }.replace(multiSpaceRegex, " ").trim()
     }
 
-    private fun detectDayColumns(cellTexts: Array<Array<String>>): Map<Int, DayColumnMeta> {
+    private fun detectDayColumns(cellTexts: Array<Array<String>>): Pair<Map<Int, DayColumnMeta>, Int> {
         val map = linkedMapOf<Int, DayColumnMeta>()
-        val headerLimit = minOf(4, cellTexts.size)
+        val headerLimit = minOf(8, cellTexts.size)
+        var lastHeaderRow = -1
         for (r in 0 until headerLimit) {
             for (c in cellTexts[r].indices) {
                 val text = cellTexts[r][c]
@@ -252,15 +251,38 @@ object RuMenuPdfParser {
                 val dateMatch = dateRegex.find(text)
                 if (dateMatch != null) {
                     map.getOrPut(c) { DayColumnMeta() }.data = dateMatch.groupValues[1]
+                    lastHeaderRow = maxOf(lastHeaderRow, r)
                 } else {
                     val norm = CasAndJsfParser.normalizeLabel(text)
                     if (norm.contains("feira") || norm.contains("sabado") || norm.contains("domingo")) {
                         map.getOrPut(c) { DayColumnMeta() }.diaSemana = text
+                        lastHeaderRow = maxOf(lastHeaderRow, r)
+                    } else if (norm.contains("composicao")) {
+                        lastHeaderRow = maxOf(lastHeaderRow, r)
                     }
                 }
             }
         }
-        return map.filterValues { it.data != null || it.diaSemana != null }
+        val filtered = map.filterValues { it.data != null || it.diaSemana != null }
+        val headerRowsEnd = if (lastHeaderRow >= 0) (lastHeaderRow + 1).coerceAtMost(cellTexts.size) else minOf(4, cellTexts.size)
+        return filtered to headerRowsEnd
+    }
+
+    private fun detectCategoryColumn(
+        grid: PdfGrid,
+        cellTexts: Array<Array<String>>,
+        firstDayCol: Int,
+    ): Int {
+        if (firstDayCol <= 0) return 0
+        for (r in cellTexts.indices) {
+            for (c in 0 until firstDayCol) {
+                if (CasAndJsfParser.normalizeLabel(cellTexts[r][c]).contains("composicao")) {
+                    return c
+                }
+            }
+        }
+        return (0 until firstDayCol).maxByOrNull { c -> grid.colBounds[c + 1] - grid.colBounds[c] }
+            ?: (firstDayCol - 1)
     }
 
     private fun isHorizontallyMergedDayRow(

@@ -9,6 +9,7 @@ import com.unbpocket.core.model.ru.TipoRefeicao
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.LocalDate
 
 class DiscenteDocumentosAndRuWpParserTest {
     @Test
@@ -91,6 +92,82 @@ class DiscenteDocumentosAndRuWpParserTest {
         assertEquals("2026-11-19T11:19:39", menuPage.modifiedGmt)
         assertEquals(5, menuPage.campusLinks.size)
         assertEquals("https://ru.unb.br/wp-content/uploads/2026/11/FAL.pdf", menuPage.campusLinks[CampusRu.FAZENDA_AGUA_LIMPA]?.pdfUrl)
+    }
+
+    @Test
+    fun parsesRealElementorSectionWrappedWpPageAndSelectsActiveWeek() {
+        val elementorJson = """
+            {
+              "id": 12853,
+              "modified_gmt": "2026-11-19T11:19:39",
+              "content": {
+                "rendered": "<section class=\"elementor-section\"><div class=\"elementor-widget-container\"><h2 class=\"elementor-heading-title\">Confira o cardápio da semana:</h2></div></section><section class=\"elementor-section\"><div class=\"elementor-widget-container\"><h3 class=\"elementor-heading-title\">Cardápio Darcy Ribeiro </h3></div></section><section class=\"elementor-section\"><div class=\"elementor-widget-container\"><p><a href=\"https://ru.unb.br/wp-content/uploads/2026/11/Darcy-Semana-01.pdf\">ISM &#8211; 16/11/2026 À 22/11/2026</a></p><p><a href=\"https://ru.unb.br/wp-content/uploads/2026/11/Darcy-Semana-02.pdf\">ISM &#8211; 23/11/2026 À 29/11/2026</a></p></div></section><section class=\"elementor-section\"><div class=\"elementor-widget-container\"><h3 class=\"elementor-heading-title\">Cardápio Ceilândia</h3></div></section><section class=\"elementor-section\"><div class=\"elementor-widget-container\"><p><a href=\"https://ru.unb.br/wp-content/uploads/2026/11/Ceilandia-Semana-02.pdf\">ISM &#8211; 23/11/2026 À 29/11/2026</a></p></div></section><section class=\"elementor-section\"><div class=\"elementor-widget-container\"><h3 class=\"title\">Últimas Notícias</h3><a href=\"https://ru.unb.br/wp-content/uploads/2026/11/Edital-Gama.pdf\">Edital Gama</a></div></section>"
+              }
+            }
+        """.trimIndent()
+
+        val week1 = (RuWpParser.parseMenuPage(elementorJson, LocalDate.of(2026, 11, 22)) as CoreResult.Success).value
+        assertEquals(
+            "https://ru.unb.br/wp-content/uploads/2026/11/Darcy-Semana-01.pdf",
+            week1.campusLinks[CampusRu.DARCY_RIBEIRO]?.pdfUrl,
+        )
+        assertEquals(
+            "https://ru.unb.br/wp-content/uploads/2026/11/Ceilandia-Semana-02.pdf",
+            week1.campusLinks[CampusRu.CEILANDIA]?.pdfUrl,
+        )
+        assertEquals(2, week1.campusLinks.size)
+
+        val week2 = (RuWpParser.parseMenuPage(elementorJson, LocalDate.of(2026, 11, 23)) as CoreResult.Success).value
+        assertEquals(
+            "https://ru.unb.br/wp-content/uploads/2026/11/Darcy-Semana-02.pdf",
+            week2.campusLinks[CampusRu.DARCY_RIBEIRO]?.pdfUrl,
+        )
+    }
+
+    @Test
+    fun parsesPdfWithSixHeaderRowsAndVerticalSideBannerWithoutOverwritingCategories() {
+        val legendBuffers = Alergenico.entries.sortedBy { it.legendOrderIndex }.associateWith { alg ->
+            val v = (alg.legendOrderIndex * 24).toByte()
+            RgbImageBuffer(32, 32, ByteArray(32 * 32 * 3) { v })
+        }
+        val legendImages = legendBuffers.entries.mapIndexed { idx, (_, buf) ->
+            PdfLocatedImage("leg_$idx", 50f + idx * 60f, 543f, 70f + idx * 60f, 563f, buf)
+        }
+
+        // Simula layout real de Darcy Cafe da Manha: banner vertical (col 0: 21..40), COMPOSICAO (col 1: 46..208), 2a feira (col 2: 209..300)
+        // Cabecalho tem 5 faixas horizontais (85, 92, 105, 117, 123), depois BEBIDAS (123..150) e sub-linha Cafe ou cha (150..180)
+        val rowYs = listOf(85f, 92f, 105f, 117f, 123f, 150f, 180f)
+        val colXs = listOf(21f, 46f, 209f, 300f)
+        val lines = rowYs.map { y -> PdfLineSegment(21f, y, 300f, y) } +
+            colXs.map { x -> PdfLineSegment(x, 85f, x, 180f) }
+
+        val texts = listOf(
+            PdfTextSpan("2ª FEIRA", 215f, 94f, 280f, 103f),
+            PdfTextSpan("COMPOSIÇÃO", 60f, 99f, 160f, 112f),
+            PdfTextSpan("(23/11/2026)", 215f, 106f, 290f, 115f),
+            PdfTextSpan("Café da manhã", 23f, 155f, 38f, 175f),
+            PdfTextSpan("BEBIDAS", 60f, 130f, 140f, 145f),
+            PdfTextSpan("Leite integral", 215f, 130f, 290f, 145f),
+            PdfTextSpan("Café ou chá", 215f, 158f, 285f, 172f),
+        )
+
+        val page = PdfMenuPageData(0, 842.04f, 595.56f, texts, lines, legendImages)
+        val parsed = (RuMenuPdfParser.parsePages(
+            campus = CampusRu.DARCY_RIBEIRO,
+            semanaLabel = "23/11 à 29/11",
+            pdfUrl = "https://ru.unb.br/test.pdf",
+            fallbackImageUrl = null,
+            localPdfPath = null,
+            modifiedGmt = "2026-11-19T11:19:39",
+            pages = listOf(page),
+        ) as CoreResult.Success).value
+
+        assertEquals(1, parsed.dias.size)
+        val cafeItems = parsed.dias[0].refeicoes[TipoRefeicao.CAFE_DA_MANHA].orEmpty()
+        assertEquals(2, cafeItems.size)
+        assertEquals("BEBIDAS", cafeItems[0].categoria)
+        assertEquals("BEBIDAS", cafeItems[1].categoria)
+        assertEquals("Café ou chá", cafeItems[1].prato)
     }
 
     @Test

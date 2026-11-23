@@ -16,7 +16,8 @@ data class CasLoginForm(
  * `idDiscente`) e tokens do formulario Apereo CAS.
  */
 object CasAndJsfParser {
-    private val jsfCljsObjectRegex = Regex("""jsfcljs\([^,]+,\s*\{(.*?)}\s*,?""", RegexOption.DOT_MATCHES_ALL)
+    internal const val JSF_CLJS_PATTERN = """jsfcljs\([^,]+,\s*\{(.*?)\}\s*,?"""
+    private val jsfCljsObjectRegex = Regex(JSF_CLJS_PATTERN, RegexOption.DOT_MATCHES_ALL)
     private val keyValuePairRegex = Regex("""'([^']*)'\s*:\s*'([^']*)'""")
 
     fun isCasLoginPage(html: String): Boolean {

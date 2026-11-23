@@ -11,6 +11,8 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import org.jsoup.Jsoup
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 
 data class CampusPdfLink(
     val campus: CampusRu,
@@ -91,48 +93,52 @@ private data class WpPostDto(
  */
 object RuWpParser {
     private val json = Json { ignoreUnknownKeys = true }
+    private val dateRangeRegex = Regex("""(\d{2}/\d{2}/\d{4})\s*[aàAÀ\-]+\s*(\d{2}/\d{2}/\d{4})""")
+    private val brDateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
 
-    fun parseMenuPage(jsonBody: String): CoreResult<RuWpMenuPage> = runCatching {
+    fun parseMenuPage(
+        jsonBody: String,
+        referenceDate: LocalDate = LocalDate.now(),
+    ): CoreResult<RuWpMenuPage> = runCatching {
         val page = json.decodeFromString<WpPageDto>(jsonBody)
         val doc = Jsoup.parse(page.content.rendered)
-        val links = linkedMapOf<CampusRu, CampusPdfLink>()
+        val candidatesByCampus = linkedMapOf<CampusRu, MutableList<CampusPdfLink>>()
+        var currentCampus: CampusRu? = null
 
-        val headings = doc.select("h3.elementor-heading-title, h3, h2")
-        for (heading in headings) {
-            val normalizedHeading = CasAndJsfParser.normalizeLabel(heading.text())
-            val campus = CampusRu.entries.firstOrNull { c ->
-                normalizedHeading.contains(CasAndJsfParser.normalizeLabel(c.headingKeyword))
-            } ?: continue
-
-            var sibling = heading.nextElementSibling()
-            var foundLink: CampusPdfLink? = null
-            var hops = 0
-            while (sibling != null && hops < 5 && foundLink == null) {
-                val anchor = sibling.selectFirst("a[href*='.pdf']")
-                    ?: if (sibling.tagName() == "a" && sibling.attr("href").contains(".pdf")) sibling else null
-                if (anchor != null) {
-                    val href = anchor.attr("href").trim()
-                    val label = anchor.text().trim()
-                    if (href.isNotEmpty()) {
-                        foundLink = CampusPdfLink(campus = campus, semanaLabel = label, pdfUrl = href)
+        for (element in doc.select("h2, h3, a[href*='.pdf']")) {
+            val tag = element.tagName().lowercase()
+            if (tag == "h2" || tag == "h3") {
+                val normalizedHeading = CasAndJsfParser.normalizeLabel(element.text())
+                if (normalizedHeading.contains("ultimas noticias")) {
+                    currentCampus = null
+                    break
+                }
+                currentCampus = if (normalizedHeading.contains("cardapio")) {
+                    CampusRu.entries.firstOrNull { c ->
+                        normalizedHeading.contains(CasAndJsfParser.normalizeLabel(c.headingKeyword))
                     }
+                } else {
+                    null
                 }
-                sibling = sibling.nextElementSibling()
-                hops++
-            }
-            if (foundLink == null) {
-                val parentBlockAnchor = heading.parent()?.parent()?.selectFirst("a[href*='.pdf']")
-                if (parentBlockAnchor != null) {
-                    foundLink = CampusPdfLink(
-                        campus = campus,
-                        semanaLabel = parentBlockAnchor.text().trim(),
-                        pdfUrl = parentBlockAnchor.attr("href").trim(),
-                    )
+            } else if (tag == "a" && currentCampus != null) {
+                val href = element.attr("href").trim()
+                if (href.isNotEmpty()) {
+                    candidatesByCampus
+                        .getOrPut(currentCampus) { mutableListOf() }
+                        .add(
+                            CampusPdfLink(
+                                campus = currentCampus,
+                                semanaLabel = element.text().trim(),
+                                pdfUrl = href,
+                            ),
+                        )
                 }
             }
-            if (foundLink != null) {
-                links[campus] = foundLink
-            }
+        }
+
+        val links = linkedMapOf<CampusRu, CampusPdfLink>()
+        for ((campus, candidates) in candidatesByCampus) {
+            selectActiveWeekLink(candidates, referenceDate)?.let { links[campus] = it }
         }
 
         if (links.isEmpty()) {
@@ -146,6 +152,20 @@ object RuWpParser {
         CoreResult.Success(RuWpMenuPage(modifiedGmt = page.modifiedGmt, campusLinks = links))
     }.getOrElse { err ->
         CoreResult.Failure(CoreError.ParseError("wp/v2/pages/12853", err.message ?: "JSON invalido"))
+    }
+
+    private fun selectActiveWeekLink(
+        candidates: List<CampusPdfLink>,
+        referenceDate: LocalDate,
+    ): CampusPdfLink? {
+        if (candidates.isEmpty()) return null
+        val coveringToday = candidates.firstOrNull { link ->
+            val match = dateRangeRegex.find(link.semanaLabel) ?: return@firstOrNull false
+            val start = runCatching { LocalDate.parse(match.groupValues[1], brDateFormatter) }.getOrNull()
+            val end = runCatching { LocalDate.parse(match.groupValues[2], brDateFormatter) }.getOrNull()
+            start != null && end != null && !referenceDate.isBefore(start) && !referenceDate.isAfter(end)
+        }
+        return coveringToday ?: candidates.last()
     }
 
     fun parseMediaList(jsonBody: String): CoreResult<List<RuWpMediaItem>> = runCatching {
