@@ -383,7 +383,8 @@ object RuMenuPdfParser {
         var prevGlyph: PositionedGlyph? = null
         for (glyph in glyphs) {
             val isWhitespace = glyph.text.isBlank()
-            val gapThreshold = maxOf(glyph.widthOfSpace * 1.4f, 3.5f)
+            val safeSpace = if (glyph.widthOfSpace.isFinite() && glyph.widthOfSpace > 0f) glyph.widthOfSpace else 2.5f
+            val gapThreshold = maxOf(safeSpace * 1.4f, 3.5f)
             val hasColumnGap = prevGlyph != null && (glyph.x0 - prevGlyph.x1) > gapThreshold
             if (isWhitespace || hasColumnGap) {
                 flushCurrent()

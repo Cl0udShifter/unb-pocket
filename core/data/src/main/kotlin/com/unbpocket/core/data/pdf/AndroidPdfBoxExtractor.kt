@@ -28,6 +28,7 @@ import com.unbpocket.core.parser.RuMenuPdfParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
+import java.util.IdentityHashMap
 import kotlin.math.abs
 
 /**
@@ -75,10 +76,12 @@ class AndroidPdfBoxExtractor(
                         for (xName in resources.xObjectNames) {
                             val xObj = resources.getXObject(xName)
                             if (xObj is PDImageXObject) {
-                                val rgb = bitmapToRgb(xObj.image)
-                                when {
-                                    (rgb.width == 250 && rgb.height == 250) || xName.name == "img4" -> img4Qr = rgb
-                                    (rgb.width == 500 && rgb.height == 625) || xName.name == "img2" -> img2Foto = rgb
+                                val rgb = runCatching { xObj.image }.getOrNull()?.let(::bitmapToRgb)
+                                if (rgb != null) {
+                                    when {
+                                        (rgb.width == 250 && rgb.height == 250) || xName.name == "img4" -> img4Qr = rgb
+                                        (rgb.width == 500 && rgb.height == 625) || xName.name == "img2" -> img2Foto = rgb
+                                    }
                                 }
                             }
                         }
@@ -159,28 +162,38 @@ class AndroidPdfBoxExtractor(
             }
         }
 
-    private fun bitmapToRgb(bitmap: Bitmap): RgbImageBuffer {
-        val working = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+    /**
+     * Converte Bitmap para RgbImageBuffer sem reciclar o Bitmap de origem, pois PDImageXObject
+     * mantem cache interno em SoftReference reutilizado em imagens repetidas na mesma pagina.
+     */
+    private fun bitmapToRgb(bitmap: Bitmap): RgbImageBuffer? {
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) return null
+        val isArgb = bitmap.config == Bitmap.Config.ARGB_8888
+        val working = if (isArgb) {
             bitmap
         } else {
-            bitmap.copy(Bitmap.Config.ARGB_8888, false).also {
-                bitmap.recycle()
+            bitmap.copy(Bitmap.Config.ARGB_8888, false) ?: return null
+        }
+        try {
+            val w = working.width
+            val h = working.height
+            if (w <= 0 || h <= 0) return null
+            val pixels = IntArray(w * h)
+            working.getPixels(pixels, 0, w, 0, 0, w, h)
+            val rgb = ByteArray(w * h * 3)
+            for (i in pixels.indices) {
+                val px = pixels[i]
+                val out = i * 3
+                rgb[out] = ((px shr 16) and 0xFF).toByte()
+                rgb[out + 1] = ((px shr 8) and 0xFF).toByte()
+                rgb[out + 2] = (px and 0xFF).toByte()
+            }
+            return RgbImageBuffer(width = w, height = h, rgbBytes = rgb)
+        } finally {
+            if (!isArgb) {
+                working.recycle()
             }
         }
-        val w = working.width
-        val h = working.height
-        val pixels = IntArray(w * h)
-        working.getPixels(pixels, 0, w, 0, 0, w, h)
-        working.recycle()
-        val rgb = ByteArray(w * h * 3)
-        for (i in pixels.indices) {
-            val px = pixels[i]
-            val out = i * 3
-            rgb[out] = ((px shr 16) and 0xFF).toByte()
-            rgb[out + 1] = ((px shr 8) and 0xFF).toByte()
-            rgb[out + 2] = (px and 0xFF).toByte()
-        }
-        return RgbImageBuffer(width = w, height = h, rgbBytes = rgb)
     }
 
     private class PositionedTextCollector(pageNumber: Int) : PDFTextStripper() {
@@ -222,6 +235,7 @@ class AndroidPdfBoxExtractor(
 
         private val pendingSegments = mutableListOf<PdfLineSegment>()
         private val pendingRects = mutableListOf<FilledPdfRect>()
+        private val decodedImageCache = IdentityHashMap<PDImage, RgbImageBuffer>()
         private var currentPoint = PointF(0f, 0f)
         private var pathStart = PointF(0f, 0f)
         private var imageCounter = 0
@@ -254,8 +268,12 @@ class AndroidPdfBoxExtractor(
             val bottom = pageHeight - pdfBottom
             val x1 = x0 + w
 
-            val bitmap = runCatching { pdImage.image }.getOrNull() ?: return
-            val rgb = bitmapToRgb(bitmap)
+            val rgb = decodedImageCache[pdImage] ?: run {
+                val bitmap = runCatching { pdImage.image }.getOrNull() ?: return
+                val converted = runCatching { bitmapToRgb(bitmap) }.getOrNull() ?: return
+                decodedImageCache[pdImage] = converted
+                converted
+            }
             images += PdfLocatedImage(
                 name = "img_${imageCounter++}",
                 x0 = x0,

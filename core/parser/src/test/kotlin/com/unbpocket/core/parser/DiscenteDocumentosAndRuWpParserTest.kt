@@ -289,7 +289,7 @@ class DiscenteDocumentosAndRuWpParserTest {
 
         val headerDayGlyphs = buildList {
             addAll(wordGlyphs("2a", 230f, 92f))
-            add(PositionedGlyph(" ", 241f, 92f, 243f, 100f, 2.5f))
+            add(PositionedGlyph(" ", 241f, 92f, 243f, 100f, Float.NaN))
             addAll(wordGlyphs("FEIRA", 244f, 92f))
             addAll(wordGlyphs("3a", 321f, 92f))
             add(PositionedGlyph(" ", 332f, 92f, 334f, 100f, 2.5f))
