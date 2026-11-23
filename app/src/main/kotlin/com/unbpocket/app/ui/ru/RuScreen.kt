@@ -190,7 +190,7 @@ fun RuScreen(
                 HeaderActionIconButton(
                     icon = Icons.Rounded.NotificationsNone,
                     contentDescription = "Avisos e preços do RU",
-                    showDot = !uiState.noticias?.value.isNullOrEmpty(),
+                    showDot = uiState.hasUnreadNoticias,
                     onClick = { onSetNoticesSheetOpen(true) },
                 )
                 HeaderActionIconButton(
@@ -210,7 +210,6 @@ fun RuScreen(
                     } else {
                         "Entrar na conta UnB"
                     },
-                    showDot = authState is AuthState.Authenticated,
                     onClick = onOpenAccountSheet,
                 )
             },

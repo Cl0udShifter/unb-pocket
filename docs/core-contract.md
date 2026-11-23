@@ -105,7 +105,7 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
 * `PrecoGrupoRu(grupo: GrupoAcessoRu, publicoAlvo: String, cafeCentavos: Long?, almocoCentavos: Long?, jantarCentavos: Long?, porKgCentavos: Long?)`
 * `TabelaPrecosRu(resolucaoReferencia: String, modifiedGmt: String, grupos: List<PrecoGrupoRu>, formasPagamento: List<String>)`
 * `NoticiaRu(id: Long, dateIso: String, title: String, excerptText: String, contentHtml: String, link: String, featuredImageUrl: String?, anexoPdfUrls: List<String>)`
-* `RuPreferencias(campusSelecionado: CampusRu, alergenicosRestritos: Set<Alergenico>, ocultarPratosComAlergenicos: Boolean)`
+* `RuPreferencias(campusSelecionado: CampusRu, alergenicosRestritos: Set<Alergenico>, ocultarPratosComAlergenicos: Boolean, noticiasVistasIds: Set<Long> = emptySet())`
 * `RuAutoSyncSummary(checkedAtEpochMillis: Long, skippedDueToCooldown: Boolean, updatedCampi: Set<CampusRu>, upToDateCampi: Set<CampusRu>, failedCampi: Map<CampusRu, CoreError>, tabelaPrecosAtualizada: Boolean = false, noticiasAtualizadas: Boolean = false)` (com propriedade computada `anyUpdated: Boolean`)
 
 ### 3.3 Turmas e Turma Virtual (`com.unbpocket.core.model.turmas`)
@@ -186,6 +186,7 @@ interface UnbPocketCore {
 * `suspend fun refreshTabelaPrecos(force: Boolean = false): CoreResult<TabelaPrecosRu>`
 * `fun observeNoticias(): Flow<SyncedData<List<NoticiaRu>>?>`
 * `suspend fun refreshNoticias(perPage: Int = 10): CoreResult<List<NoticiaRu>>`
+* `suspend fun markNoticiasVistas(ids: Set<Long>): CoreResult<Unit>` (persiste os IDs das noticias ja visualizadas pelo usuario em `RuPreferencias.noticiasVistasIds`)
 * `suspend fun downloadCardapioPdfLocal(campus: CampusRu): CoreResult<String>`
 
 ### 4.4 `TurmasRepository` (Tela 2: Turmas)

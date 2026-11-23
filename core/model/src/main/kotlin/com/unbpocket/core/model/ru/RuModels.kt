@@ -131,6 +131,7 @@ data class RuPreferencias(
     val campusSelecionado: CampusRu = CampusRu.DARCY_RIBEIRO,
     val alergenicosRestritos: Set<Alergenico> = emptySet(),
     val ocultarPratosComAlergenicos: Boolean = false,
+    val noticiasVistasIds: Set<Long> = emptySet(),
 )
 
 /**

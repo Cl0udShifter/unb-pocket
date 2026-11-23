@@ -22,6 +22,7 @@ interface RuPrefsSource {
     val preferencias: Flow<RuPreferencias>
     suspend fun setCampus(campus: CampusRu)
     suspend fun setAlergenicos(alergenicos: Set<Alergenico>, ocultarPratos: Boolean)
+    suspend fun markNoticiasVistas(ids: Set<Long>)
 }
 
 interface FileStore {

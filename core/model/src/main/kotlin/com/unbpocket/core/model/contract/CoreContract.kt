@@ -83,6 +83,8 @@ interface RuRepository {
 
     suspend fun refreshNoticias(perPage: Int = 10): CoreResult<List<NoticiaRu>>
 
+    suspend fun markNoticiasVistas(ids: Set<Long>): CoreResult<Unit>
+
     suspend fun downloadCardapioPdfLocal(campus: CampusRu): CoreResult<String>
 }
 

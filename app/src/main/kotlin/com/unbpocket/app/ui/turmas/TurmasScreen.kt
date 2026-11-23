@@ -153,7 +153,6 @@ fun TurmasScreen(
                         Icons.Rounded.PersonOutline
                     },
                     contentDescription = "Conta UnB",
-                    showDot = uiState.authState is AuthState.Authenticated,
                     onClick = onOpenAccountSheet,
                 )
             },

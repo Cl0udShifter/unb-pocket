@@ -71,6 +71,13 @@ class RuRepositoryImpl(
         onFailure = { CoreResult.Failure(CoreError.StorageError("setAlergenicosRestritos", it.message.orEmpty())) },
     )
 
+    override suspend fun markNoticiasVistas(ids: Set<Long>): CoreResult<Unit> = runCatching {
+        prefsSource.markNoticiasVistas(ids)
+    }.fold(
+        onSuccess = { CoreResult.Success(Unit) },
+        onFailure = { CoreResult.Failure(CoreError.StorageError("markNoticiasVistas", it.message.orEmpty())) },
+    )
+
     override fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?> =
         cacheStore.observe(
             cacheKey = SnapshotCacheStore.Keys.cardapio(campus),

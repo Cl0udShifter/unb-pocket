@@ -791,6 +791,12 @@ class UnbPocketCoreIntegrationTest {
         assertEquals("30/11/2026 à 06/12/2026", core.ru.observeCardapio(CampusRu.DARCY_RIBEIRO).first()?.value?.semanaLabel)
         assertEquals("23/11/2026 à 29/11/2026", core.ru.observeCardapio(CampusRu.PLANALTINA).first()?.value?.semanaLabel)
         assertEquals(4, pagesHits.get())
+
+        // 7. IDs de noticias vistas sao persistidos e sobrevivem ao logout SIGAA
+        assertTrue(core.ru.observePreferencias().first().noticiasVistasIds.isEmpty())
+        assertTrue(core.ru.markNoticiasVistas(setOf(23408L)) is CoreResult.Success)
+        assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
+        assertEquals(setOf(23408L), core.ru.observePreferencias().first().noticiasVistasIds)
     }
 
     private fun redirect(location: String) =

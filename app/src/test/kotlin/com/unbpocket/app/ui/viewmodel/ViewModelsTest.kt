@@ -14,6 +14,7 @@ import com.unbpocket.core.model.ru.CardapioDiaRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.ItemCardapioRu
+import com.unbpocket.core.model.ru.NoticiaRu
 import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
@@ -204,6 +205,55 @@ class ViewModelsTest {
         assertEquals(2, core.ruFake.syncCardapiosCalls)
         assertNull(vm.uiState.value.menuError)
         assertEquals("30/11/2026 a 06/12/2026", vm.uiState.value.cardapio?.value?.semanaLabel)
+
+        collector.cancel()
+    }
+
+    @Test
+    fun `RuViewModel clears unread notices indicator on open and restores it only for new notice IDs`() = runTest {
+        val core = FakeUnbPocketCore()
+        val initialNotices = listOf(
+            NoticiaRu(101L, "2026-11-20", "Edital 01", "Resumo 1", "<p>1</p>", "https://ru.unb.br/101", null, emptyList()),
+            NoticiaRu(102L, "2026-11-22", "Edital 02", "Resumo 2", "<p>2</p>", "https://ru.unb.br/102", null, emptyList()),
+        )
+        core.ruFake.noticias.value = SyncedData(initialNotices, DataOrigin.CACHE, 1000L)
+
+        val vm = RuViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        assertTrue(vm.uiState.value.hasUnreadNoticias)
+
+        vm.setNoticesAndPricesSheetOpen(true)
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.hasUnreadNoticias)
+        assertEquals(setOf(101L, 102L), vm.uiState.value.preferencias.noticiasVistasIds)
+
+        vm.setNoticesAndPricesSheetOpen(false)
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.hasUnreadNoticias)
+
+        // Quando surge uma nova noticia com ID inedito, o indicador volta a aparecer
+        val updatedNotices = initialNotices + NoticiaRu(
+            103L,
+            "2026-11-23",
+            "Edital 03",
+            "Resumo 3",
+            "<p>3</p>",
+            "https://ru.unb.br/103",
+            null,
+            emptyList(),
+        )
+        core.ruFake.nextRefreshNoticiasResult = CoreResult.Success(updatedNotices)
+        vm.refreshPricesAndNotices(force = true)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.hasUnreadNoticias)
+
+        // Abrir novamente marca inclusive o novo ID como visto
+        vm.setNoticesAndPricesSheetOpen(true)
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.hasUnreadNoticias)
+        assertEquals(setOf(101L, 102L, 103L), vm.uiState.value.preferencias.noticiasVistasIds)
 
         collector.cancel()
     }

@@ -153,6 +153,7 @@ class FakeRuRepository : RuRepository {
     var syncCardapiosCalls = 0
     var nextRefreshCardapioResult: CoreResult<CardapioSemanalRu>? = null
     var nextSyncCardapiosResult: CoreResult<RuAutoSyncSummary>? = null
+    var nextRefreshNoticiasResult: CoreResult<List<NoticiaRu>>? = null
 
     override fun observePreferencias(): Flow<RuPreferencias> = preferencias
 
@@ -229,8 +230,21 @@ class FakeRuRepository : RuRepository {
 
     override fun observeNoticias(): Flow<SyncedData<List<NoticiaRu>>?> = noticias
 
-    override suspend fun refreshNoticias(perPage: Int): CoreResult<List<NoticiaRu>> =
-        CoreResult.Success(emptyList())
+    override suspend fun refreshNoticias(perPage: Int): CoreResult<List<NoticiaRu>> {
+        val result = nextRefreshNoticiasResult ?: CoreResult.Success(noticias.value?.value.orEmpty())
+        if (result is CoreResult.Success) {
+            noticias.value = SyncedData(result.value, DataOrigin.REMOTE, 2000L)
+        }
+        return result
+    }
+
+    override suspend fun markNoticiasVistas(ids: Set<Long>): CoreResult<Unit> {
+        if (ids.isEmpty()) return CoreResult.Success(Unit)
+        preferencias.value = preferencias.value.copy(
+            noticiasVistasIds = preferencias.value.noticiasVistasIds + ids,
+        )
+        return CoreResult.Success(Unit)
+    }
 
     override suspend fun downloadCardapioPdfLocal(campus: CampusRu): CoreResult<String> =
         CoreResult.Failure(CoreError.ReadOnlyViolation("cardapio", "not used"))

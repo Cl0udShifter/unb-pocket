@@ -80,6 +80,13 @@ class InMemoryRuPrefsSource : RuPrefsSource {
             ocultarPratosComAlergenicos = ocultarPratos,
         )
     }
+
+    override suspend fun markNoticiasVistas(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        state.value = state.value.copy(
+            noticiasVistasIds = state.value.noticiasVistasIds + ids,
+        )
+    }
 }
 
 class TempFileStore : FileStore {

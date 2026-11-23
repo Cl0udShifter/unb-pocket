@@ -30,10 +30,14 @@ class RuPreferencesStore(
             .mapNotNull { id -> Alergenico.entries.firstOrNull { it.id == id } }
             .toSet()
         val ocultar = prefs[KEY_OCULTAR_ALERGENICOS] ?: false
+        val seenNoticeIds = prefs[KEY_NOTICIAS_VISTAS].orEmpty()
+            .mapNotNull { it.toLongOrNull() }
+            .toSet()
         RuPreferencias(
             campusSelecionado = campus,
             alergenicosRestritos = alergenicos,
             ocultarPratosComAlergenicos = ocultar,
+            noticiasVistasIds = seenNoticeIds,
         )
     }
 
@@ -50,9 +54,21 @@ class RuPreferencesStore(
         }
     }
 
+    override suspend fun markNoticiasVistas(ids: Set<Long>) {
+        if (ids.isEmpty()) return
+        context.ruPrefsDataStore.edit { prefs ->
+            val current = prefs[KEY_NOTICIAS_VISTAS].orEmpty()
+                .mapNotNull { it.toLongOrNull() }
+            val merged = (current + ids).distinct().sorted().takeLast(MAX_TRACKED_NOTICES)
+            prefs[KEY_NOTICIAS_VISTAS] = merged.map { it.toString() }.toSet()
+        }
+    }
+
     private companion object {
+        const val MAX_TRACKED_NOTICES = 100
         val KEY_CAMPUS = stringPreferencesKey("campus_slug")
         val KEY_ALERGENICOS = stringSetPreferencesKey("restricted_allergens")
         val KEY_OCULTAR_ALERGENICOS = booleanPreferencesKey("hide_dishes_with_allergens")
+        val KEY_NOTICIAS_VISTAS = stringSetPreferencesKey("seen_notice_ids")
     }
 }

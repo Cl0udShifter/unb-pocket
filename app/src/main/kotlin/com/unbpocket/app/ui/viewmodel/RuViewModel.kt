@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
@@ -48,6 +49,7 @@ data class RuUiState(
     val isCampusSheetOpen: Boolean = false,
     val isAllergenSheetOpen: Boolean = false,
     val isNoticesAndPricesSheetOpen: Boolean = false,
+    val hasUnreadNoticias: Boolean = false,
 ) {
     val isMenuLoading: Boolean
         get() = cardapio == null && (isRefreshingMenu || !hasResolvedInitialMenu)
@@ -101,6 +103,9 @@ class RuViewModel(
             else -> resolveTodayIndex(dias.map { it.dataTexto to it.diaSemana })
         }
 
+        val currentNoticias = noticias?.value.orEmpty()
+        val hasUnreadNoticias = currentNoticias.any { it.id !in prefs.noticiasVistasIds }
+
         RuUiState(
             preferencias = prefs,
             cardapio = cardapio,
@@ -116,6 +121,7 @@ class RuViewModel(
             isCampusSheetOpen = ctrl.isCampusSheetOpen,
             isAllergenSheetOpen = ctrl.isAllergenSheetOpen,
             isNoticesAndPricesSheetOpen = ctrl.isNoticesAndPricesSheetOpen,
+            hasUnreadNoticias = hasUnreadNoticias,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -228,6 +234,12 @@ class RuViewModel(
             controlState.update { it.copy(isRefreshingExtras = true, extrasError = null) }
             val precosRes = core.ru.refreshTabelaPrecos(force = force)
             val noticiasRes = core.ru.refreshNoticias(perPage = 10)
+            if (controlState.value.isNoticesAndPricesSheetOpen && noticiasRes is CoreResult.Success) {
+                val ids = noticiasRes.value.mapTo(linkedSetOf()) { it.id }
+                if (ids.isNotEmpty()) {
+                    core.ru.markNoticiasVistas(ids)
+                }
+            }
             val error = (noticiasRes as? CoreResult.Failure)?.error
                 ?: (precosRes as? CoreResult.Failure)?.error
             controlState.update {
@@ -250,7 +262,19 @@ class RuViewModel(
     fun setNoticesAndPricesSheetOpen(open: Boolean) {
         controlState.update { it.copy(isNoticesAndPricesSheetOpen = open) }
         if (open) {
+            markLoadedNoticiasAsSeen()
             refreshPricesAndNotices(force = false)
+        }
+    }
+
+    private fun markLoadedNoticiasAsSeen() {
+        viewModelScope.launch {
+            val ids = core.ru.observeNoticias().firstOrNull()?.value
+                ?.mapTo(linkedSetOf()) { it.id }
+                .orEmpty()
+            if (ids.isNotEmpty()) {
+                core.ru.markNoticiasVistas(ids)
+            }
         }
     }
 
