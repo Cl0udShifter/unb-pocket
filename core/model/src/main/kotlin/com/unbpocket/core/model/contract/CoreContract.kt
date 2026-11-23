@@ -15,6 +15,7 @@ import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.NoticiaRu
+import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
@@ -64,6 +65,11 @@ interface RuRepository {
         campus: CampusRu,
         force: Boolean = false,
     ): CoreResult<CardapioSemanalRu>
+
+    suspend fun syncCardapiosIfNeeded(
+        forceCheck: Boolean = false,
+        includeExtras: Boolean = false,
+    ): CoreResult<RuAutoSyncSummary>
 
     fun observeSaldoExtrato(): Flow<SyncedData<SaldoExtratoRu>?>
 

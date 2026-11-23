@@ -24,6 +24,7 @@ import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.NoticiaRu
+import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
@@ -149,7 +150,9 @@ class FakeRuRepository : RuRepository {
     val noticias = MutableStateFlow<SyncedData<List<NoticiaRu>>?>(null)
 
     val refreshedCampuses = mutableListOf<CampusRu>()
+    var syncCardapiosCalls = 0
     var nextRefreshCardapioResult: CoreResult<CardapioSemanalRu>? = null
+    var nextSyncCardapiosResult: CoreResult<RuAutoSyncSummary>? = null
 
     override fun observePreferencias(): Flow<RuPreferencias> = preferencias
 
@@ -187,6 +190,23 @@ class FakeRuRepository : RuRepository {
         )
         cardapios.value = cardapios.value + (campus to SyncedData(fallback, DataOrigin.REMOTE, 1000L))
         return CoreResult.Success(fallback)
+    }
+
+    override suspend fun syncCardapiosIfNeeded(
+        forceCheck: Boolean,
+        includeExtras: Boolean,
+    ): CoreResult<RuAutoSyncSummary> {
+        syncCardapiosCalls++
+        nextSyncCardapiosResult?.let { return it }
+        return CoreResult.Success(
+            RuAutoSyncSummary(
+                checkedAtEpochMillis = 2000L,
+                skippedDueToCooldown = false,
+                updatedCampi = emptySet(),
+                upToDateCampi = cardapios.value.keys,
+                failedCampi = emptyMap(),
+            ),
+        )
     }
 
     override fun observeSaldoExtrato(): Flow<SyncedData<SaldoExtratoRu>?> = saldoExtrato

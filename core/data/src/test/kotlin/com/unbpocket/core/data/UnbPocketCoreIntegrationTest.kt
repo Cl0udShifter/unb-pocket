@@ -44,6 +44,8 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import java.nio.charset.Charset
+import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.util.concurrent.atomic.AtomicInteger
 
 class UnbPocketCoreIntegrationTest {
@@ -666,6 +668,129 @@ class UnbPocketCoreIntegrationTest {
         assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("documentos"))
         assertTrue(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("materiais_$frontEndId"))
         assertFalse(com.unbpocket.core.data.local.DownloadedFileStore.isSigaaUserDir("pdfs"))
+    }
+
+    @Test
+    fun ruAutoSyncRespectsCooldownWeeklyRolloverDelayedPublishAndPartialFailures() = runTest {
+        val brasilia = ZoneId.of("America/Sao_Paulo")
+        fun brtMillis(day: Int, hour: Int, minute: Int = 0): Long =
+            ZonedDateTime.of(2026, 11, day, hour, minute, 0, 0, brasilia).toInstant().toEpochMilli()
+
+        val pagesHits = AtomicInteger(0)
+        val pdfHits = AtomicInteger(0)
+        var includeW2Links = false
+        var failPlanaltinaW2 = false
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.contains("/wp-json/wp/v2/pages/12853") -> {
+                        pagesHits.incrementAndGet()
+                        val html = buildString {
+                            for (campus in CampusRu.entries) {
+                                append("<h3>Cardápio ${campus.displayName}</h3>")
+                                append("<p><a href=\"${server.url("/uploads/${campus.slug}-w1.pdf")}\">23/11/2026 à 29/11/2026</a></p>")
+                                if (includeW2Links) {
+                                    append("<p><a href=\"${server.url("/uploads/${campus.slug}-w2.pdf")}\">30/11/2026 à 06/12/2026</a></p>")
+                                }
+                            }
+                        }.replace("\"", "\\\"")
+                        MockResponse().setResponseCode(200).setBody(
+                            """{"id":12853,"modified_gmt":"2026-11-23T08:00:00","content":{"rendered":"$html"}}""",
+                        )
+                    }
+                    path.contains("-w1.pdf") -> {
+                        pdfHits.incrementAndGet()
+                        pdfResponse("%PDF-1.4 w1")
+                    }
+                    path.contains("-w2.pdf") -> {
+                        pdfHits.incrementAndGet()
+                        if (failPlanaltinaW2 && path.contains("planaltina")) {
+                            MockResponse().setResponseCode(500)
+                        } else {
+                            pdfResponse("%PDF-1.4 w2")
+                        }
+                    }
+                    path.contains("slug=precos-e-grupos") -> MockResponse().setResponseCode(200).setBody(
+                        """[{"id":400,"modified_gmt":"2026-11-01T10:00:00","content":{"rendered":"<table><tr><th>Grupo</th><th>Café</th></tr><tr><td>Grupo IV</td><td>R$ 2,50</td></tr></table>"}}]""",
+                    )
+                    path.contains("/wp-json/wp/v2/media") -> MockResponse().setResponseCode(200).setBody("[]")
+                    path.contains("/wp-json/wp/v2/posts") -> MockResponse().setResponseCode(200).setBody(
+                        """[{"id":23408,"date":"2026-05-28T10:00:00","link":"https://ru.unb.br/n1","title":{"rendered":"Edital 07"},"excerpt":{"rendered":"Resumo"},"content":{"rendered":"<p>Texto</p>"}}]""",
+                    )
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        pdfExtractor.ruPagesResult = CoreResult.Success(listOf(buildSyntheticRuMenuPage()))
+
+        // 1. Primeira sincronizacao na quarta 25/11 busca pages/12853 1 vez e os 5 PDFs
+        fakeClock = brtMillis(25, 10, 0)
+        val initial = (core.ru.syncCardapiosIfNeeded(forceCheck = false, includeExtras = true) as CoreResult.Success).value
+        assertFalse(initial.skippedDueToCooldown)
+        assertEquals(CampusRu.entries.toSet(), initial.updatedCampi)
+        assertTrue(initial.failedCampi.isEmpty())
+        assertTrue(initial.tabelaPrecosAtualizada)
+        assertTrue(initial.noticiasAtualizadas)
+        assertEquals(1, pagesHits.get())
+        assertEquals(5, pdfHits.get())
+
+        // 2. Dentro de 6h e semana vigente, nenhuma requisicao de rede e feita (mesmo apos logout do SIGAA)
+        fakeClock = brtMillis(25, 12, 0)
+        assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
+        val withinCooldown = (core.ru.syncCardapiosIfNeeded(forceCheck = false) as CoreResult.Success).value
+        assertTrue(withinCooldown.skippedDueToCooldown)
+        assertEquals(CampusRu.entries.toSet(), withinCooldown.upToDateCampi)
+        assertEquals(1, pagesHits.get())
+        assertEquals(5, pdfHits.get())
+        assertNotNull(core.ru.observeCardapio(CampusRu.GAMA).first())
+
+        // 3. No domingo 22:00 BRT forcamos verificacao com semana ainda valida
+        fakeClock = brtMillis(29, 22, 0)
+        val sundayCheck = (core.ru.syncCardapiosIfNeeded(forceCheck = true) as CoreResult.Success).value
+        assertFalse(sundayCheck.skippedDueToCooldown)
+        assertTrue(sundayCheck.updatedCampi.isEmpty())
+        assertEquals(2, pagesHits.get())
+        assertEquals(5, pdfHits.get())
+
+        // 4. Segunda 00:30 BRT (2h30 depois, menor que 6h): semana expirou e RU atrasou a publicacao
+        fakeClock = brtMillis(30, 0, 30)
+        val delayedCheck = (core.ru.syncCardapiosIfNeeded(forceCheck = false) as CoreResult.Success).value
+        assertFalse(delayedCheck.skippedDueToCooldown)
+        assertTrue(delayedCheck.updatedCampi.isEmpty())
+        assertEquals(CampusRu.entries.toSet(), delayedCheck.upToDateCampi)
+        assertEquals(3, pagesHits.get())
+        assertEquals(5, pdfHits.get())
+        assertEquals("23/11/2026 à 29/11/2026", core.ru.observeCardapio(CampusRu.DARCY_RIBEIRO).first()?.value?.semanaLabel)
+
+        // 5. 15 min depois respeita o cooldown curto de 30 min para cardapio expirado
+        fakeClock = brtMillis(30, 0, 45)
+        val throttledRetry = (core.ru.syncCardapiosIfNeeded(forceCheck = false) as CoreResult.Success).value
+        assertTrue(throttledRetry.skippedDueToCooldown)
+        assertEquals(3, pagesHits.get())
+
+        // 6. Apos 35 min (01:05 BRT), novo PDF semanal entra no ar com falha parcial em Planaltina
+        fakeClock = brtMillis(30, 1, 5)
+        includeW2Links = true
+        failPlanaltinaW2 = true
+        val partialUpdate = (core.ru.syncCardapiosIfNeeded(forceCheck = false) as CoreResult.Success).value
+        assertFalse(partialUpdate.skippedDueToCooldown)
+        assertEquals(
+            setOf(
+                CampusRu.DARCY_RIBEIRO,
+                CampusRu.CEILANDIA,
+                CampusRu.GAMA,
+                CampusRu.FAZENDA_AGUA_LIMPA,
+            ),
+            partialUpdate.updatedCampi,
+        )
+        assertEquals(setOf(CampusRu.PLANALTINA), partialUpdate.failedCampi.keys)
+        assertEquals("30/11/2026 à 06/12/2026", core.ru.observeCardapio(CampusRu.DARCY_RIBEIRO).first()?.value?.semanaLabel)
+        assertEquals("23/11/2026 à 29/11/2026", core.ru.observeCardapio(CampusRu.PLANALTINA).first()?.value?.semanaLabel)
+        assertEquals(4, pagesHits.get())
     }
 
     private fun redirect(location: String) =

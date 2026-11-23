@@ -1,5 +1,7 @@
 package com.unbpocket.core.model.ru
 
+import com.unbpocket.core.model.common.CoreError
+
 /**
  * Campi da UnB atendidos pelo Restaurante Universitario conforme `ru.unb.br`.
  */
@@ -130,3 +132,19 @@ data class RuPreferencias(
     val alergenicosRestritos: Set<Alergenico> = emptySet(),
     val ocultarPratosComAlergenicos: Boolean = false,
 )
+
+/**
+ * Resumo da verificacao automatica semanal dos cardapios de todos os campi do RU.
+ */
+data class RuAutoSyncSummary(
+    val checkedAtEpochMillis: Long,
+    val skippedDueToCooldown: Boolean,
+    val updatedCampi: Set<CampusRu>,
+    val upToDateCampi: Set<CampusRu>,
+    val failedCampi: Map<CampusRu, CoreError>,
+    val tabelaPrecosAtualizada: Boolean = false,
+    val noticiasAtualizadas: Boolean = false,
+) {
+    val anyUpdated: Boolean
+        get() = updatedCampi.isNotEmpty() || tabelaPrecosAtualizada || noticiasAtualizadas
+}

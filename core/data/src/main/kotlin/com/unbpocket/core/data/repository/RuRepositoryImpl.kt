@@ -4,6 +4,7 @@ import com.unbpocket.core.data.local.CacheMappers
 import com.unbpocket.core.data.local.CardapioSemanalRuDto
 import com.unbpocket.core.data.local.FileStore
 import com.unbpocket.core.data.local.PdfExtractor
+import com.unbpocket.core.data.local.RuAutoSyncMetaDto
 import com.unbpocket.core.data.local.RuPrefsSource
 import com.unbpocket.core.data.local.SaldoExtratoRuDto
 import com.unbpocket.core.data.local.SnapshotCacheStore
@@ -19,17 +20,23 @@ import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.NoticiaRu
+import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.network.UnbHttpTransport
+import com.unbpocket.core.parser.CampusPdfLink
 import com.unbpocket.core.parser.CasAndJsfParser
 import com.unbpocket.core.parser.DiscentePortalParser
 import com.unbpocket.core.parser.RuCalculator
+import com.unbpocket.core.parser.RuMenuFreshness
 import com.unbpocket.core.parser.RuMenuPdfParser
+import com.unbpocket.core.parser.RuWpMenuPage
 import com.unbpocket.core.parser.RuWpParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * Repositorio do Modulo RU (`ru.unb.br` via WP REST API v2 + PDFs semanais + saldo SIGAA).
@@ -43,6 +50,8 @@ class RuRepositoryImpl(
     private val pdfExtractor: PdfExtractor,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : RuRepository {
+    private val syncMutex = Mutex()
+
     override fun observePreferencias(): Flow<RuPreferencias> = prefsSource.preferencias
 
     override suspend fun setCampusSelecionado(campus: CampusRu): CoreResult<Unit> = runCatching {
@@ -72,37 +81,162 @@ class RuRepositoryImpl(
     override suspend fun refreshCardapio(
         campus: CampusRu,
         force: Boolean,
-    ): CoreResult<CardapioSemanalRu> {
+    ): CoreResult<CardapioSemanalRu> = syncMutex.withLock {
+        val now = clockMillis()
+        val parsedPage = when (val res = fetchMenuPage(now)) {
+            is CoreResult.Failure -> return@withLock res
+            is CoreResult.Success -> res.value
+        }
+
+        val campusLink = parsedPage.campusLinks[campus]
+            ?: return@withLock CoreResult.Failure(
+                CoreError.ParseError("wp/v2/pages/12853", "Cardapio nao encontrado para ${campus.displayName}."),
+            )
+
+        val cached = getCachedCardapio(campus)
+        if (!force && isCacheUpToDate(cached, parsedPage.modifiedGmt, campusLink.pdfUrl)) {
+            return@withLock CoreResult.Success(cached!!)
+        }
+
+        when (val res = fetchAndPersistCampusMenu(campus, parsedPage.modifiedGmt, campusLink)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+    }
+
+    override suspend fun syncCardapiosIfNeeded(
+        forceCheck: Boolean,
+        includeExtras: Boolean,
+    ): CoreResult<RuAutoSyncSummary> = syncMutex.withLock {
+        val now = clockMillis()
+        val cachedByCampus = CampusRu.entries.associateWith { campus -> getCachedCardapio(campus) }
+        val lastCheckEpochMillis = cacheStore.get(
+            cacheKey = SnapshotCacheStore.Keys.RU_AUTO_SYNC_META,
+            serializer = RuAutoSyncMetaDto.serializer(),
+            fromDto = { it.lastCheckEpochMillis },
+        )?.value
+
+        val shouldCheck = RuMenuFreshness.shouldCheckRemote(
+            cachedByCampus = cachedByCampus,
+            lastCheckEpochMillis = lastCheckEpochMillis,
+            nowEpochMillis = now,
+            forceCheck = forceCheck,
+        )
+        if (!shouldCheck) {
+            return@withLock CoreResult.Success(
+                RuAutoSyncSummary(
+                    checkedAtEpochMillis = lastCheckEpochMillis ?: now,
+                    skippedDueToCooldown = true,
+                    updatedCampi = emptySet(),
+                    upToDateCampi = cachedByCampus.filterValues { it != null }.keys,
+                    failedCampi = emptyMap(),
+                ),
+            )
+        }
+
+        val parsedPage = when (val res = fetchMenuPage(now)) {
+            is CoreResult.Failure -> return@withLock res
+            is CoreResult.Success -> res.value
+        }
+
+        cacheStore.put(
+            cacheKey = SnapshotCacheStore.Keys.RU_AUTO_SYNC_META,
+            domain = SnapshotCacheStore.Domains.META,
+            origin = DataOrigin.REMOTE,
+            syncedAtEpochMillis = now,
+            value = RuAutoSyncMetaDto(lastCheckEpochMillis = now),
+            serializer = RuAutoSyncMetaDto.serializer(),
+            toDto = { it },
+        )
+
+        val updatedCampi = linkedSetOf<CampusRu>()
+        val upToDateCampi = linkedSetOf<CampusRu>()
+        val failedCampi = linkedMapOf<CampusRu, CoreError>()
+
+        for (campus in CampusRu.entries) {
+            val campusLink = parsedPage.campusLinks[campus]
+            if (campusLink == null) {
+                failedCampi[campus] = CoreError.ParseError(
+                    "wp/v2/pages/12853",
+                    "Cardapio nao encontrado para ${campus.displayName}.",
+                )
+                continue
+            }
+
+            val cached = cachedByCampus[campus]
+            if (isCacheUpToDate(cached, parsedPage.modifiedGmt, campusLink.pdfUrl)) {
+                upToDateCampi += campus
+                continue
+            }
+
+            when (val res = fetchAndPersistCampusMenu(campus, parsedPage.modifiedGmt, campusLink)) {
+                is CoreResult.Failure -> failedCampi[campus] = res.error
+                is CoreResult.Success -> {
+                    val (_, changed) = res.value
+                    if (changed) {
+                        updatedCampi += campus
+                    } else {
+                        upToDateCampi += campus
+                    }
+                }
+            }
+        }
+
+        val tabelaAtualizada = if (includeExtras) {
+            (refreshTabelaPrecosWithDiff() as? CoreResult.Success)?.value?.second == true
+        } else {
+            false
+        }
+        val noticiasAtualizadas = if (includeExtras) {
+            (refreshNoticiasWithDiff(perPage = 10) as? CoreResult.Success)?.value?.second == true
+        } else {
+            false
+        }
+
+        CoreResult.Success(
+            RuAutoSyncSummary(
+                checkedAtEpochMillis = now,
+                skippedDueToCooldown = false,
+                updatedCampi = updatedCampi,
+                upToDateCampi = upToDateCampi,
+                failedCampi = failedCampi,
+                tabelaPrecosAtualizada = tabelaAtualizada,
+                noticiasAtualizadas = noticiasAtualizadas,
+            ),
+        )
+    }
+
+    private suspend fun fetchMenuPage(nowEpochMillis: Long): CoreResult<RuWpMenuPage> {
         val pagePayload = when (val res = transport.get(transport.endpoints.ruCardapiosPageUrl)) {
             is CoreResult.Failure -> return res
             is CoreResult.Success -> res.value
         }
+        val referenceDate = RuMenuFreshness.localDateInBrasilia(nowEpochMillis)
+        return RuWpParser.parseMenuPage(pagePayload.decodeUtf8(), referenceDate = referenceDate)
+    }
 
-        val parsedPage = when (val parsed = RuWpParser.parseMenuPage(pagePayload.decodeUtf8())) {
-            is CoreResult.Failure -> return parsed
-            is CoreResult.Success -> parsed.value
-        }
-
-        val campusLink = parsedPage.campusLinks[campus]
-            ?: return CoreResult.Failure(
-                CoreError.ParseError("wp/v2/pages/12853", "Cardapio nao encontrado para ${campus.displayName}."),
-            )
-
-        val cached = cacheStore.get(
+    private suspend fun getCachedCardapio(campus: CampusRu): CardapioSemanalRu? =
+        cacheStore.get(
             cacheKey = SnapshotCacheStore.Keys.cardapio(campus),
             serializer = CardapioSemanalRuDto.serializer(),
             fromDto = CacheMappers::fromDto,
         )?.value
 
-        if (!force &&
-            cached != null &&
-            cached.modifiedGmt == parsedPage.modifiedGmt &&
-            cached.pdfUrl == campusLink.pdfUrl &&
+    private fun isCacheUpToDate(
+        cached: CardapioSemanalRu?,
+        modifiedGmt: String,
+        pdfUrl: String,
+    ): Boolean =
+        cached != null &&
+            cached.modifiedGmt == modifiedGmt &&
+            cached.pdfUrl == pdfUrl &&
             cached.parserStatus == CardapioParserStatus.PARSED_STRUCTURED
-        ) {
-            return CoreResult.Success(cached)
-        }
 
+    private suspend fun fetchAndPersistCampusMenu(
+        campus: CampusRu,
+        modifiedGmt: String,
+        campusLink: CampusPdfLink,
+    ): CoreResult<Pair<CardapioSemanalRu, Boolean>> {
         val pdfPayload = when (val res = transport.get(campusLink.pdfUrl)) {
             is CoreResult.Failure -> return res
             is CoreResult.Success -> res.value
@@ -123,7 +257,7 @@ class RuRepositoryImpl(
                 pdfUrl = campusLink.pdfUrl,
                 fallbackImageUrl = fallbackImageUrl,
                 localPdfPath = localPdfFile.absolutePath,
-                modifiedGmt = parsedPage.modifiedGmt,
+                modifiedGmt = modifiedGmt,
                 pages = pages.value,
             )
         }
@@ -131,7 +265,7 @@ class RuRepositoryImpl(
         val now = clockMillis()
         return when (parsedMenuResult) {
             is CoreResult.Success -> {
-                cacheStore.put(
+                val changed = cacheStore.put(
                     cacheKey = SnapshotCacheStore.Keys.cardapio(campus),
                     domain = SnapshotCacheStore.Domains.RU,
                     origin = DataOrigin.REMOTE,
@@ -140,7 +274,7 @@ class RuRepositoryImpl(
                     serializer = CardapioSemanalRuDto.serializer(),
                     toDto = CacheMappers::toDto,
                 )
-                parsedMenuResult
+                CoreResult.Success(parsedMenuResult.value to changed)
             }
             is CoreResult.Failure -> {
                 val fallback = CardapioSemanalRu(
@@ -149,7 +283,7 @@ class RuRepositoryImpl(
                     pdfUrl = campusLink.pdfUrl,
                     fallbackImageUrl = fallbackImageUrl,
                     localPdfPath = localPdfFile.absolutePath,
-                    modifiedGmt = parsedPage.modifiedGmt,
+                    modifiedGmt = modifiedGmt,
                     parserStatus = if (fallbackImageUrl != null) {
                         CardapioParserStatus.FALLBACK_IMAGE_ONLY
                     } else {
@@ -157,7 +291,7 @@ class RuRepositoryImpl(
                     },
                     dias = emptyList(),
                 )
-                cacheStore.put(
+                val changed = cacheStore.put(
                     cacheKey = SnapshotCacheStore.Keys.cardapio(campus),
                     domain = SnapshotCacheStore.Domains.RU,
                     origin = DataOrigin.FALLBACK,
@@ -166,7 +300,7 @@ class RuRepositoryImpl(
                     serializer = CardapioSemanalRuDto.serializer(),
                     toDto = CacheMappers::toDto,
                 )
-                CoreResult.Success(fallback)
+                CoreResult.Success(fallback to changed)
             }
         }
     }
@@ -239,13 +373,19 @@ class RuRepositoryImpl(
             )
         }
 
-    override suspend fun refreshTabelaPrecos(force: Boolean): CoreResult<TabelaPrecosRu> {
+    override suspend fun refreshTabelaPrecos(force: Boolean): CoreResult<TabelaPrecosRu> =
+        when (val res = refreshTabelaPrecosWithDiff()) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    private suspend fun refreshTabelaPrecosWithDiff(): CoreResult<Pair<TabelaPrecosRu, Boolean>> {
         val payload = when (val res = transport.get(transport.endpoints.ruPrecosPageUrl)) {
             is CoreResult.Failure -> return res
             is CoreResult.Success -> res.value
         }
         val tabela = RuWpParser.parsePricesPage(payload.decodeUtf8())
-        cacheStore.put(
+        val changed = cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.RU_PRECOS,
             domain = SnapshotCacheStore.Domains.RU,
             origin = DataOrigin.REMOTE,
@@ -254,7 +394,7 @@ class RuRepositoryImpl(
             serializer = TabelaPrecosRuDto.serializer(),
             toDto = CacheMappers::toDto,
         )
-        return CoreResult.Success(tabela)
+        return CoreResult.Success(tabela to changed)
     }
 
     override fun observeNoticias(): Flow<SyncedData<List<NoticiaRu>>?> =
@@ -264,24 +404,35 @@ class RuRepositoryImpl(
             fromDto = { dtos -> dtos.map(CacheMappers::fromDto) },
         )
 
-    override suspend fun refreshNoticias(perPage: Int): CoreResult<List<NoticiaRu>> {
+    override suspend fun refreshNoticias(perPage: Int): CoreResult<List<NoticiaRu>> =
+        when (val res = refreshNoticiasWithDiff(perPage)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    private suspend fun refreshNoticiasWithDiff(
+        perPage: Int,
+    ): CoreResult<Pair<List<NoticiaRu>, Boolean>> {
         val payload = when (val res = transport.get(transport.endpoints.ruNoticiasUrl(perPage))) {
             is CoreResult.Failure -> return res
             is CoreResult.Success -> res.value
         }
         val parsed = RuWpParser.parseNoticias(payload.decodeUtf8())
-        if (parsed is CoreResult.Success) {
-            cacheStore.put(
-                cacheKey = SnapshotCacheStore.Keys.RU_NOTICIAS,
-                domain = SnapshotCacheStore.Domains.RU,
-                origin = DataOrigin.REMOTE,
-                syncedAtEpochMillis = clockMillis(),
-                value = parsed.value,
-                serializer = CacheMappers.noticiaRuListSerializer,
-                toDto = { list -> list.map(CacheMappers::toDto) },
-            )
+        return when (parsed) {
+            is CoreResult.Failure -> parsed
+            is CoreResult.Success -> {
+                val changed = cacheStore.put(
+                    cacheKey = SnapshotCacheStore.Keys.RU_NOTICIAS,
+                    domain = SnapshotCacheStore.Domains.RU,
+                    origin = DataOrigin.REMOTE,
+                    syncedAtEpochMillis = clockMillis(),
+                    value = parsed.value,
+                    serializer = CacheMappers.noticiaRuListSerializer,
+                    toDto = { list -> list.map(CacheMappers::toDto) },
+                )
+                CoreResult.Success(parsed.value to changed)
+            }
         }
-        return parsed
     }
 
     override suspend fun downloadCardapioPdfLocal(campus: CampusRu): CoreResult<String> {

@@ -20,6 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -92,6 +94,10 @@ fun UnbPocketApp(
     val bottomContentPadding = if (!isExpandedWidth && isTopLevelRoute) 112.dp else 24.dp
 
     var showAccountSheet by remember { mutableStateOf(false) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        ruViewModel.refreshIfStaleSilently()
+    }
 
     val navigateToTopDestination: (TopDestination) -> Unit = { dest ->
         if (currentRoute != dest.route) {
@@ -224,6 +230,9 @@ private fun UnbNavHost(
         },
     ) {
         composable(TopDestination.RU.route) {
+            LaunchedEffect(Unit) {
+                ruViewModel.refreshIfStaleSilently()
+            }
             RuScreen(
                 uiState = ruUiState,
                 authState = authUiState.authState,

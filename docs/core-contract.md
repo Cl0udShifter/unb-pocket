@@ -106,6 +106,7 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
 * `TabelaPrecosRu(resolucaoReferencia: String, modifiedGmt: String, grupos: List<PrecoGrupoRu>, formasPagamento: List<String>)`
 * `NoticiaRu(id: Long, dateIso: String, title: String, excerptText: String, contentHtml: String, link: String, featuredImageUrl: String?, anexoPdfUrls: List<String>)`
 * `RuPreferencias(campusSelecionado: CampusRu, alergenicosRestritos: Set<Alergenico>, ocultarPratosComAlergenicos: Boolean)`
+* `RuAutoSyncSummary(checkedAtEpochMillis: Long, skippedDueToCooldown: Boolean, updatedCampi: Set<CampusRu>, upToDateCampi: Set<CampusRu>, failedCampi: Map<CampusRu, CoreError>, tabelaPrecosAtualizada: Boolean = false, noticiasAtualizadas: Boolean = false)` (com propriedade computada `anyUpdated: Boolean`)
 
 ### 3.3 Turmas e Turma Virtual (`com.unbpocket.core.model.turmas`)
 * `DiaSemanaSigaa`: `SEGUNDA(2)` .. `SABADO(7)`.
@@ -175,6 +176,10 @@ interface UnbPocketCore {
 * `suspend fun setAlergenicosRestritos(alergenicos: Set<Alergenico>, ocultarPratos: Boolean): CoreResult<Unit>`
 * `fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?>`
 * `suspend fun refreshCardapio(campus: CampusRu, force: Boolean = false): CoreResult<CardapioSemanalRu>`
+* `suspend fun syncCardapiosIfNeeded(forceCheck: Boolean = false, includeExtras: Boolean = false): CoreResult<RuAutoSyncSummary>`
+  * Executa verificacao automatica em modo Stale-While-Revalidate para os 5 campi (`CampusRu.entries`) com 1 requisicao GET unica para `wp/v2/pages/12853` usando a data corrente em `America/Sao_Paulo`, baixando novamente apenas PDFs cuja URL ou `modifiedGmt` mudaram.
+  * Politica de cooldown: `6 horas` quando todos os cardapios em cache ainda estao vigentes (`today <= endDate`), reduzindo para `30 minutos` caso algum campus esteja ausente ou com semana expirada (`today > endDate`, por exemplo segunda-feira enquanto o RU ainda nao publicou o novo arquivo). Em caso de atraso na publicacao ou falha parcial/offline, o cache anterior permanece intacto e falhas por campus sao isoladas em `failedCampi`.
+  * A atualizacao periodica tambem e agendada em segundo plano via `WorkManager` (`RuMenuSyncWorker`, periodicidade de 6h com `NetworkType.CONNECTED`, `forceCheck = true`, `includeExtras = true`), complementada por checagem silenciosa (`forceCheck = false`) no `ON_RESUME` da aplicacao e ao entrar na aba RU.
 * `fun observeSaldoExtrato(): Flow<SyncedData<SaldoExtratoRu>?>`
 * `suspend fun refreshSaldoExtrato(): CoreResult<SaldoExtratoRu>`
 * `fun observeTabelaPrecos(): Flow<SyncedData<TabelaPrecosRu>?>`

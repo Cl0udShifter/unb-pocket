@@ -16,6 +16,7 @@ import com.unbpocket.core.data.repository.RuRepositoryImpl
 import com.unbpocket.core.data.repository.TurmasRepositoryImpl
 import com.unbpocket.core.data.security.KeystoreCredentialVault
 import com.unbpocket.core.data.session.SigaaSessionCoordinator
+import com.unbpocket.core.data.worker.RuMenuAutoSyncScheduler
 import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.PortalHomeSyncSummary
@@ -45,8 +46,21 @@ import kotlinx.coroutines.launch
  * Fabrica do ponto de entrada unico do Core/Backend para a camada Android (`:app`).
  */
 object UnbPocketCoreFactory {
+    @Volatile
+    private var sharedInstance: UnbPocketCore? = null
+    private val instanceLock = Any()
+
     fun create(context: Context): UnbPocketCore {
         val appContext = context.applicationContext
+        return sharedInstance ?: synchronized(instanceLock) {
+            sharedInstance ?: buildCore(appContext).also { core ->
+                sharedInstance = core
+                RuMenuAutoSyncScheduler.ensureScheduled(appContext)
+            }
+        }
+    }
+
+    private fun buildCore(appContext: Context): UnbPocketCore {
         val database = UnbPocketDatabase.build(appContext)
         return createWithPorts(
             transport = UnbHttpTransport(),

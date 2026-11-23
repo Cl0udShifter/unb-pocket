@@ -16,6 +16,7 @@ import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.model.ru.TipoRefeicao
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -73,6 +74,7 @@ class RuViewModel(
 
     private val controlState = MutableStateFlow(RuControlState())
     private var lastLoadedCampus: CampusRu? = null
+    private var silentSyncJob: Job? = null
 
     private val preferenciasFlow = core.ru.observePreferencias()
 
@@ -186,6 +188,19 @@ class RuViewModel(
         val campus = uiState.value.preferencias.campusSelecionado
         viewModelScope.launch {
             refreshMenuInternal(campus = campus, force = force)
+        }
+    }
+
+    /**
+     * Verifica e atualiza silenciosamente os cardapios vencidos ou obsoletos sem alterar spinners ou erros visiveis.
+     */
+    fun refreshIfStaleSilently() {
+        if (silentSyncJob?.isActive == true || controlState.value.isRefreshingMenu) return
+        silentSyncJob = viewModelScope.launch {
+            core.ru.syncCardapiosIfNeeded(
+                forceCheck = false,
+                includeExtras = false,
+            )
         }
     }
 

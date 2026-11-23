@@ -136,6 +136,7 @@ class SnapshotCacheStore(
         const val RU = "ru"
         const val TURMAS = "turmas"
         const val DISCENTE = "discente"
+        const val META = "meta"
     }
 
     object Keys {
@@ -143,6 +144,7 @@ class SnapshotCacheStore(
         const val RU_SALDO = "ru_saldo"
         const val RU_PRECOS = "ru_precos"
         const val RU_NOTICIAS = "ru_noticias"
+        const val RU_AUTO_SYNC_META = "ru_auto_sync_meta"
         const val TURMAS_LIST = "turmas_semestre"
         const val TURMAS_FEED = "turmas_feed"
         fun turmaDetalhe(frontEndId: String) = "turma_detalhe_$frontEndId"
@@ -782,3 +784,8 @@ internal object CacheMappers {
         d.emitidoEmEpochMillis,
     )
 }
+
+@Serializable
+data class RuAutoSyncMetaDto(
+    val lastCheckEpochMillis: Long,
+)

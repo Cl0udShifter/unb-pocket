@@ -14,6 +14,7 @@ import com.unbpocket.core.model.ru.CardapioDiaRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.ItemCardapioRu
+import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import kotlinx.coroutines.Dispatchers
@@ -149,6 +150,60 @@ class ViewModelsTest {
         advanceUntilIdle()
         assertEquals(setOf(Alergenico.GLUTEN), vm.uiState.value.preferencias.alergenicosRestritos)
         assertTrue(vm.uiState.value.preferencias.ocultarPratosComAlergenicos)
+
+        collector.cancel()
+    }
+
+    @Test
+    fun `RuViewModel refreshIfStaleSilently never surfaces errors or loading spinners`() = runTest {
+        val core = FakeUnbPocketCore()
+        val cachedDarcy = CardapioSemanalRu(
+            campus = CampusRu.DARCY_RIBEIRO,
+            semanaLabel = "23/11/2026 a 29/11/2026",
+            pdfUrl = "https://ru.unb.br/darcy-w1.pdf",
+            fallbackImageUrl = null,
+            localPdfPath = null,
+            modifiedGmt = "t1",
+            parserStatus = CardapioParserStatus.PARSED_STRUCTURED,
+            dias = emptyList(),
+        )
+        core.ruFake.cardapios.value = mapOf(
+            CampusRu.DARCY_RIBEIRO to SyncedData(cachedDarcy, DataOrigin.CACHE, 500L),
+        )
+        core.ruFake.nextRefreshCardapioResult = CoreResult.Success(cachedDarcy)
+
+        val vm = RuViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        core.ruFake.nextSyncCardapiosResult = CoreResult.Failure(CoreError.NetworkUnavailable)
+        vm.refreshIfStaleSilently()
+        advanceUntilIdle()
+
+        assertEquals(1, core.ruFake.syncCardapiosCalls)
+        assertNull(vm.uiState.value.menuError)
+        assertFalse(vm.uiState.value.isRefreshingMenu)
+        assertEquals("23/11/2026 a 29/11/2026", vm.uiState.value.cardapio?.value?.semanaLabel)
+
+        val updatedDarcy = cachedDarcy.copy(semanaLabel = "30/11/2026 a 06/12/2026")
+        core.ruFake.nextSyncCardapiosResult = CoreResult.Success(
+            RuAutoSyncSummary(
+                checkedAtEpochMillis = 3000L,
+                skippedDueToCooldown = false,
+                updatedCampi = setOf(CampusRu.DARCY_RIBEIRO),
+                upToDateCampi = emptySet(),
+                failedCampi = emptyMap(),
+            ),
+        )
+        vm.refreshIfStaleSilently()
+        core.ruFake.cardapios.value = mapOf(
+            CampusRu.DARCY_RIBEIRO to SyncedData(updatedDarcy, DataOrigin.REMOTE, 3000L),
+        )
+        advanceUntilIdle()
+
+        assertEquals(2, core.ruFake.syncCardapiosCalls)
+        assertNull(vm.uiState.value.menuError)
+        assertEquals("30/11/2026 a 06/12/2026", vm.uiState.value.cardapio?.value?.semanaLabel)
 
         collector.cancel()
     }
