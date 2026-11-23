@@ -33,7 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.SoupKitchen
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.FreeBreakfast
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
@@ -708,7 +708,7 @@ private fun RuMealSelectorRow(
                 )
                 MealIconPill(
                     selected = selectedMeal == TipoRefeicao.JANTAR,
-                    icon = Icons.Rounded.Bedtime,
+                    icon = Icons.Rounded.SoupKitchen,
                     label = TipoRefeicao.JANTAR.displayName,
                     onClick = { onSelectMeal(TipoRefeicao.JANTAR) },
                 )
