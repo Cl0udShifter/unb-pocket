@@ -257,7 +257,17 @@ class RuViewModel(
             else -> "seg"
         }
         val dowIdx = days.indexOfFirst { (_, diaSemana) ->
-            diaSemana.lowercase().contains(dowKeyword.take(3))
+            val lower = diaSemana.lowercase().trim()
+            when (cal.get(Calendar.DAY_OF_WEEK)) {
+                Calendar.MONDAY -> lower.contains("seg") || lower.startsWith("2")
+                Calendar.TUESDAY -> lower.contains("ter") || lower.startsWith("3")
+                Calendar.WEDNESDAY -> lower.contains("qua") || lower.startsWith("4")
+                Calendar.THURSDAY -> lower.contains("qui") || lower.startsWith("5")
+                Calendar.FRIDAY -> lower.contains("sex") || lower.startsWith("6")
+                Calendar.SATURDAY -> lower.contains("sab") || lower.contains("sáb")
+                Calendar.SUNDAY -> lower.contains("dom")
+                else -> lower.contains(dowKeyword.take(3))
+            }
         }
         return if (dowIdx >= 0) dowIdx else 0
     }

@@ -23,11 +23,12 @@ enum class DietaryBadgeKind(val label: String) {
 
 enum class RuMenuSectionKind(val heading: String, val sortOrder: Int) {
     PRATOS_PRINCIPAIS("PRATOS PRINCIPAIS", 0),
-    GUARNICAO("GUARNIÇÃO & ACOMPANHAMENTOS", 1),
-    SOPA("SOPA DO DIA", 2),
-    SALADAS("SALADAS", 3),
-    SOBREMESA("SOBREMESA & BEBIDA", 4),
-    OUTROS("OUTROS ITENS", 5),
+    PANIFICACAO("PANIFICAÇÃO & EXTRAS", 1),
+    GUARNICAO("GUARNIÇÃO & ACOMPANHAMENTOS", 2),
+    SOPA("SOPA DO DIA", 3),
+    SALADAS("SALADAS", 4),
+    SOBREMESA("SOBREMESA & BEBIDA", 5),
+    OUTROS("OUTROS ITENS", 6),
 }
 
 data class RuMenuDisplayRow(
@@ -118,11 +119,11 @@ object Formatters {
     fun parseDayChipMeta(index: Int, dia: CardapioDiaRu): DayChipMeta {
         val norm = normalize(dia.diaSemana)
         val shortDow = when {
-            norm.contains("seg") -> "SEG"
-            norm.contains("ter") -> "TER"
-            norm.contains("qua") -> "QUA"
-            norm.contains("qui") -> "QUI"
-            norm.contains("sex") -> "SEX"
+            norm.contains("seg") || norm.startsWith("2") -> "SEG"
+            norm.contains("ter") || norm.startsWith("3") -> "TER"
+            norm.contains("qua") || norm.startsWith("4") -> "QUA"
+            norm.contains("qui") || norm.startsWith("5") -> "QUI"
+            norm.contains("sex") || norm.startsWith("6") -> "SEX"
             norm.contains("sab") -> "SÁB"
             norm.contains("dom") -> "DOM"
             else -> dia.diaSemana.take(3).uppercase(ptBrLocale).ifBlank { "DIA" }
@@ -185,6 +186,21 @@ object Formatters {
                 null,
                 DietaryBadgeKind.PADRAO,
             )
+            catNorm.contains("panificacao") || catNorm.contains("pao") -> Triple(
+                RuMenuSectionKind.PANIFICACAO,
+                "Pães",
+                null,
+            )
+            catNorm.contains("gordura") -> Triple(
+                RuMenuSectionKind.PANIFICACAO,
+                "Gordura",
+                null,
+            )
+            catNorm.contains("extra") -> Triple(
+                RuMenuSectionKind.PANIFICACAO,
+                "Extra",
+                null,
+            )
             catNorm.contains("guarnicao") || catNorm.contains("acompanhamento") || catNorm.contains("arroz") || catNorm.contains("feijao") -> Triple(
                 RuMenuSectionKind.GUARNICAO,
                 if (catNorm.contains("guarnicao")) "Guarnição" else "Acomp.",
@@ -195,14 +211,33 @@ object Formatters {
                 if (catNorm.contains("torrada")) "Torrada" else "Sopa",
                 null,
             )
-            catNorm.contains("salada") || catNorm.contains("molho") -> Triple(
+            catNorm.contains("molho") -> Triple(
                 RuMenuSectionKind.SALADAS,
-                item.categoria.trim().take(12),
+                "Molho",
                 null,
             )
-            catNorm.contains("sobremesa") || catNorm.contains("bebida") || catNorm.contains("suco") || catNorm.contains("fruta") || catNorm.contains("cafe") -> Triple(
+            catNorm.contains("salada") -> Triple(
+                RuMenuSectionKind.SALADAS,
+                when {
+                    catNorm.contains("1") -> "Salada 1"
+                    catNorm.contains("2") -> "Salada 2"
+                    else -> "Salada"
+                },
+                null,
+            )
+            catNorm.contains("sobremesa") -> Triple(
                 RuMenuSectionKind.SOBREMESA,
-                item.categoria.trim().take(12),
+                "Sobremesa",
+                null,
+            )
+            catNorm.contains("fruta") -> Triple(
+                RuMenuSectionKind.SOBREMESA,
+                "Fruta",
+                null,
+            )
+            catNorm.contains("bebida") || catNorm.contains("suco") || catNorm.contains("refresco") || catNorm.contains("cafe") -> Triple(
+                RuMenuSectionKind.SOBREMESA,
+                "Bebida",
                 null,
             )
             else -> Triple(

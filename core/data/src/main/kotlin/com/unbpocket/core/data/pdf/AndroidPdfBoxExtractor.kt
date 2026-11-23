@@ -17,11 +17,14 @@ import com.unbpocket.core.data.local.PdfExtractor
 import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.parser.CarteirinhaPdfExtractedInput
+import com.unbpocket.core.parser.FilledPdfRect
 import com.unbpocket.core.parser.PdfLineSegment
 import com.unbpocket.core.parser.PdfLocatedImage
 import com.unbpocket.core.parser.PdfMenuPageData
 import com.unbpocket.core.parser.PdfTextSpan
+import com.unbpocket.core.parser.PositionedGlyph
 import com.unbpocket.core.parser.RgbImageBuffer
+import com.unbpocket.core.parser.RuMenuPdfParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
@@ -140,7 +143,7 @@ class AndroidPdfBoxExtractor(
                             pageWidth = pageWidth,
                             pageHeight = pageHeight,
                             texts = textCollector.spans,
-                            lines = graphicsCollector.lines,
+                            lines = graphicsCollector.resolvedLines(),
                             images = graphicsCollector.images,
                         )
                     }
@@ -157,11 +160,18 @@ class AndroidPdfBoxExtractor(
         }
 
     private fun bitmapToRgb(bitmap: Bitmap): RgbImageBuffer {
-        val w = bitmap.width
-        val h = bitmap.height
+        val working = if (bitmap.config == Bitmap.Config.ARGB_8888) {
+            bitmap
+        } else {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false).also {
+                bitmap.recycle()
+            }
+        }
+        val w = working.width
+        val h = working.height
         val pixels = IntArray(w * h)
-        bitmap.getPixels(pixels, 0, w, 0, 0, w, h)
-        bitmap.recycle()
+        working.getPixels(pixels, 0, w, 0, 0, w, h)
+        working.recycle()
         val rgb = ByteArray(w * h * 3)
         for (i in pixels.indices) {
             val px = pixels[i]
@@ -184,24 +194,21 @@ class AndroidPdfBoxExtractor(
 
         override fun writeString(text: String?, textPositions: MutableList<TextPosition>?) {
             if (text.isNullOrBlank() || textPositions.isNullOrEmpty()) return
-            var minX = Float.MAX_VALUE
-            var minTop = Float.MAX_VALUE
-            var maxX = -Float.MAX_VALUE
-            var maxBottom = -Float.MAX_VALUE
-            for (pos in textPositions) {
-                minX = minOf(minX, pos.xDirAdj)
-                maxX = maxOf(maxX, pos.xDirAdj + pos.widthDirAdj)
-                val top = pos.yDirAdj - pos.heightDir
-                minTop = minOf(minTop, top)
-                maxBottom = maxOf(maxBottom, pos.yDirAdj)
+            val glyphs = textPositions.map { pos ->
+                val x0 = pos.xDirAdj
+                val x1 = x0 + pos.widthDirAdj
+                val bottom = pos.yDirAdj
+                val top = bottom - pos.heightDir
+                PositionedGlyph(
+                    text = pos.unicode.orEmpty(),
+                    x0 = minOf(x0, x1),
+                    top = minOf(top, bottom),
+                    x1 = maxOf(x0, x1),
+                    bottom = maxOf(top, bottom),
+                    widthOfSpace = pos.widthOfSpace,
+                )
             }
-            spans += PdfTextSpan(
-                text = text.trim(),
-                x0 = minX,
-                top = minTop,
-                x1 = maxX,
-                bottom = maxBottom,
-            )
+            spans += RuMenuPdfParser.splitLineGlyphsIntoCellSpans(glyphs)
         }
     }
 
@@ -209,13 +216,18 @@ class AndroidPdfBoxExtractor(
         page: PDPage,
         private val pageHeight: Float,
     ) : PDFGraphicsStreamEngine(page) {
-        val lines = mutableListOf<PdfLineSegment>()
+        private val thinBorderLines = mutableListOf<PdfLineSegment>()
+        private val fallbackFillLines = mutableListOf<PdfLineSegment>()
         val images = mutableListOf<PdfLocatedImage>()
 
         private val pendingSegments = mutableListOf<PdfLineSegment>()
+        private val pendingRects = mutableListOf<FilledPdfRect>()
         private var currentPoint = PointF(0f, 0f)
         private var pathStart = PointF(0f, 0f)
         private var imageCounter = 0
+
+        fun resolvedLines(): List<PdfLineSegment> =
+            RuMenuPdfParser.selectGridLineSegments(thinBorderLines, fallbackFillLines)
 
         override fun appendRectangle(p0: PointF, p1: PointF, p2: PointF, p3: PointF) {
             val xs = listOf(p0.x, p1.x, p2.x, p3.x)
@@ -224,6 +236,7 @@ class AndroidPdfBoxExtractor(
             val x1 = xs.max()
             val top = pageHeight - ys.max()
             val bottom = pageHeight - ys.min()
+            pendingRects += FilledPdfRect(x0 = x0, top = top, x1 = x1, bottom = bottom)
             pendingSegments += PdfLineSegment(x0, top, x1, top)
             pendingSegments += PdfLineSegment(x0, bottom, x1, bottom)
             pendingSegments += PdfLineSegment(x0, top, x0, bottom)
@@ -264,10 +277,12 @@ class AndroidPdfBoxExtractor(
             val top0 = pageHeight - currentPoint.y
             val top1 = pageHeight - y
             pendingSegments += PdfLineSegment(currentPoint.x, top0, x, top1)
+            pendingRects.clear()
             currentPoint = PointF(x, y)
         }
 
         override fun curveTo(x1: Float, y1: Float, x2: Float, y2: Float, x3: Float, y3: Float) {
+            pendingRects.clear()
             currentPoint = PointF(x3, y3)
         }
 
@@ -282,25 +297,43 @@ class AndroidPdfBoxExtractor(
 
         override fun endPath() {
             pendingSegments.clear()
+            pendingRects.clear()
         }
 
         override fun strokePath() {
-            lines += pendingSegments
+            thinBorderLines += pendingSegments
             pendingSegments.clear()
+            pendingRects.clear()
         }
 
         override fun fillPath(windingRule: Path.FillType) {
-            for (seg in pendingSegments) {
-                if (abs(seg.x1 - seg.x0) >= 15f || abs(seg.bottom - seg.top) >= 15f) {
-                    lines += seg
+            if (pendingRects.isNotEmpty()) {
+                pendingRects.forEach { rect ->
+                    RuMenuPdfParser.classifyFilledRectSegments(
+                        rect = rect,
+                        thinBorderLines = thinBorderLines,
+                        fallbackFillLines = fallbackFillLines,
+                    )
+                }
+            } else {
+                for (seg in pendingSegments) {
+                    val dx = abs(seg.x1 - seg.x0)
+                    val dy = abs(seg.bottom - seg.top)
+                    if ((dx <= 3.5f && dy >= 15f) || (dy <= 3.5f && dx >= 15f)) {
+                        thinBorderLines += seg
+                    } else if (dx >= 15f || dy >= 15f) {
+                        fallbackFillLines += seg
+                    }
                 }
             }
             pendingSegments.clear()
+            pendingRects.clear()
         }
 
         override fun fillAndStrokePath(windingRule: Path.FillType) {
-            lines += pendingSegments
+            thinBorderLines += pendingSegments
             pendingSegments.clear()
+            pendingRects.clear()
         }
 
         override fun shadingFill(shadingName: COSName) = Unit

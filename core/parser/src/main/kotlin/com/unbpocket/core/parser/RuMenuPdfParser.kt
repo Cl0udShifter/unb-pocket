@@ -19,6 +19,22 @@ data class PdfTextSpan(
     val bottom: Float,
 )
 
+data class PositionedGlyph(
+    val text: String,
+    val x0: Float,
+    val top: Float,
+    val x1: Float,
+    val bottom: Float,
+    val widthOfSpace: Float,
+)
+
+data class FilledPdfRect(
+    val x0: Float,
+    val top: Float,
+    val x1: Float,
+    val bottom: Float,
+)
+
 data class PdfLineSegment(
     val x0: Float,
     val top: Float,
@@ -115,6 +131,9 @@ object RuMenuPdfParser {
                 } else {
                     null
                 }
+                val mergedDish = mergedBbox?.let { bbox ->
+                    extractCellText(page.texts, bbox).takeIf { it.isNotBlank() }
+                }
 
                 for ((colIdx, meta) in dayCols) {
                     val dataStr = meta.data ?: "COL_$colIdx"
@@ -123,7 +142,9 @@ object RuMenuPdfParser {
                     }
                     val mealList = dayObj.refeicoes.getOrPut(meal) { mutableListOf() }
 
-                    val rawDish = rowTexts.getOrNull(colIdx)?.takeIf { it.isNotBlank() } ?: sharedDish
+                    val rawDish = mergedDish
+                        ?: rowTexts.getOrNull(colIdx)?.takeIf { it.isNotBlank() }
+                        ?: sharedDish
                     val dish = rawDish.replace(multiSpaceRegex, " ").trim()
                     if (dish.isEmpty()) continue
 
@@ -332,6 +353,84 @@ object RuMenuPdfParser {
         }
         return detected
     }
+
+    /**
+     * Separa glifos de uma mesma linha visual do PDFTextStripper em spans por palavra/celula
+     * para impedir que colunas vizinhas sejam fundidas em um unico bounding box horizontal.
+     */
+    fun splitLineGlyphsIntoCellSpans(glyphs: List<PositionedGlyph>): List<PdfTextSpan> {
+        if (glyphs.isEmpty()) return emptyList()
+        val spans = mutableListOf<PdfTextSpan>()
+        val current = mutableListOf<PositionedGlyph>()
+
+        fun flushCurrent() {
+            if (current.isEmpty()) return
+            val joined = buildString {
+                current.forEach { append(it.text) }
+            }.trim()
+            if (joined.isNotEmpty()) {
+                spans += PdfTextSpan(
+                    text = joined,
+                    x0 = current.minOf { it.x0 },
+                    top = current.minOf { it.top },
+                    x1 = current.maxOf { it.x1 },
+                    bottom = current.maxOf { it.bottom },
+                )
+            }
+            current.clear()
+        }
+
+        var prevGlyph: PositionedGlyph? = null
+        for (glyph in glyphs) {
+            val isWhitespace = glyph.text.isBlank()
+            val gapThreshold = maxOf(glyph.widthOfSpace * 1.4f, 3.5f)
+            val hasColumnGap = prevGlyph != null && (glyph.x0 - prevGlyph.x1) > gapThreshold
+            if (isWhitespace || hasColumnGap) {
+                flushCurrent()
+            }
+            if (!isWhitespace) {
+                current += glyph
+            }
+            prevGlyph = glyph
+        }
+        flushCurrent()
+        return spans
+    }
+
+    /**
+     * Classifica retangulos preenchidos (`re -> f*`): bordas finas de tabela viram segmentos de grade,
+     * enquanto caixas internas de destaque de texto ficam isoladas em fallback.
+     */
+    fun classifyFilledRectSegments(
+        rect: FilledPdfRect,
+        thinBorderLines: MutableList<PdfLineSegment>,
+        fallbackFillLines: MutableList<PdfLineSegment>,
+    ) {
+        val width = abs(rect.x1 - rect.x0)
+        val height = abs(rect.bottom - rect.top)
+        when {
+            height <= 3.5f && width >= 15f -> {
+                val midY = (rect.top + rect.bottom) / 2f
+                thinBorderLines += PdfLineSegment(rect.x0, midY, rect.x1, midY)
+            }
+            width <= 3.5f && height >= 15f -> {
+                val midX = (rect.x0 + rect.x1) / 2f
+                thinBorderLines += PdfLineSegment(midX, rect.top, midX, rect.bottom)
+            }
+            width >= 15f || height >= 15f -> {
+                fallbackFillLines += PdfLineSegment(rect.x0, rect.top, rect.x1, rect.top)
+                fallbackFillLines += PdfLineSegment(rect.x0, rect.bottom, rect.x1, rect.bottom)
+                fallbackFillLines += PdfLineSegment(rect.x0, rect.top, rect.x0, rect.bottom)
+                fallbackFillLines += PdfLineSegment(rect.x1, rect.top, rect.x1, rect.bottom)
+            }
+        }
+    }
+
+    fun selectGridLineSegments(
+        thinOrStroked: List<PdfLineSegment>,
+        fallbackFillLines: List<PdfLineSegment>,
+    ): List<PdfLineSegment> =
+        if (thinOrStroked.size >= 8) thinOrStroked else thinOrStroked + fallbackFillLines
 
     private data class CellBbox(val x0: Float, val top: Float, val x1: Float, val bottom: Float)
 

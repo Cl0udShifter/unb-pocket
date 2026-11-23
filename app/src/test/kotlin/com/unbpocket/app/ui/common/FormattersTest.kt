@@ -102,14 +102,36 @@ class FormattersTest {
 
     @Test
     fun `parseDayChipMeta extracts weekday abbreviation and day number`() {
-        val dia = CardapioDiaRu(
-            dataTexto = "16/11",
-            diaSemana = "Segunda-feira",
-            refeicoes = emptyMap(),
+        val seg = CardapioDiaRu("16/11/2026", "2ª FEIRA", emptyMap())
+        val qui = CardapioDiaRu("19/11/2026", "5ª FEIRA", emptyMap())
+        val dom = CardapioDiaRu("22/11/2026", "DOMINGO", emptyMap())
+
+        val metaSeg = Formatters.parseDayChipMeta(0, seg)
+        assertEquals("SEG", metaSeg.shortDow)
+        assertEquals("16", metaSeg.dayNumber)
+
+        val metaQui = Formatters.parseDayChipMeta(3, qui)
+        assertEquals("QUI", metaQui.shortDow)
+        assertEquals("19", metaQui.dayNumber)
+
+        val metaDom = Formatters.parseDayChipMeta(6, dom)
+        assertEquals("DOM", metaDom.shortDow)
+        assertEquals("22", metaDom.dayNumber)
+    }
+
+    @Test
+    fun `buildRuMenuSections labels real Darcy categories cleanly without truncation`() {
+        val items = listOf(
+            ItemCardapioRu("MOLHO PARA SALADA", "Alho e limão", emptyList()),
+            ItemCardapioRu("BEBIDA (Refresco de)", "Maracujá", emptyList()),
+            ItemCardapioRu("SOBREMESA", "Melancia", emptyList()),
+            ItemCardapioRu("PANIFICAÇÃO", "Pão francês", emptyList()),
+            ItemCardapioRu("PRATO PRINCIPAL PADRÃO", "Almôndegas de carne sugo", emptyList()),
         )
-        val meta = Formatters.parseDayChipMeta(0, dia)
-        assertEquals("SEG", meta.shortDow)
-        assertEquals("16", meta.dayNumber)
+
+        val (sections, _) = Formatters.buildRuMenuSections(items, emptySet(), hideRestricted = false)
+        val labels = sections.flatMap { s -> s.rows.mapNotNull { it.rowLabel } }
+        assertEquals(listOf("Pães", "Molho", "Bebida", "Sobremesa"), labels)
     }
 
     @Test

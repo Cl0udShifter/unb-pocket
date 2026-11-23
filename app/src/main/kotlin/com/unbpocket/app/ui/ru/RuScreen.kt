@@ -702,9 +702,9 @@ private fun MenuItemRow(
                 text = row.rowLabel,
                 style = typography.body,
                 color = colors.muted,
-                maxLines = 1,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(76.dp),
+                modifier = Modifier.width(84.dp),
             )
         }
 
