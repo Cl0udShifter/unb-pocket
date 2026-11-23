@@ -1,13 +1,9 @@
 package com.unbpocket.app.ui.discente
 
-import android.app.Activity
-import android.view.WindowManager
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.BrightnessHigh
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.LightMode
@@ -42,11 +37,9 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -55,11 +48,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,42 +90,20 @@ fun DiscenteScreen(
     bottomContentPadding: Dp,
     onToggleTheme: () -> Unit,
     onToggleQrCardFace: () -> Unit,
-    onToggleBrightnessBoost: () -> Unit,
     onRefreshProfile: () -> Unit,
-    onRefreshCarteirinha: () -> Unit,
     onSyncAll: () -> Unit,
     onOpenBoletim: () -> Unit,
     onOpenDocumentos: () -> Unit,
     onOpenLogin: () -> Unit,
     onLogout: () -> Unit,
     onDismissProfileError: () -> Unit,
-    onDismissCarteirinhaError: () -> Unit,
     onDismissSyncError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
-    val view = LocalView.current
 
     var showLogoutDialog by remember { mutableStateOf(false) }
-
-    // Boost screen brightness only while the turnstile QR face is actively open.
-    DisposableEffect(uiState.isFlippedToQr, uiState.boostQrBrightness) {
-        val window = (view.context as? Activity)?.window
-        val originalBrightness = window?.attributes?.screenBrightness
-        if (window != null && uiState.isFlippedToQr && uiState.boostQrBrightness) {
-            val lp = window.attributes
-            lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
-            window.attributes = lp
-        }
-        onDispose {
-            if (window != null && originalBrightness != null) {
-                val lp = window.attributes
-                lp.screenBrightness = originalBrightness
-                window.attributes = lp
-            }
-        }
-    }
 
     val resumoSynced = uiState.discenteResumo
     val resumo = resumoSynced?.value
@@ -148,10 +115,6 @@ fun DiscenteScreen(
         uiState.authState is AuthState.Reauthenticating ||
         authUiState.preloadProgress.phase == PreloadPhase.RUNNING_ESSENTIAL
     val isLoadingEssencial = uiState.isRefreshingProfile || isEssentialSyncing || !uiState.hasResolvedInitialCache
-    val isPreloadingCarteirinha = authUiState.preloadProgress.phase == PreloadPhase.RUNNING_BACKGROUND &&
-        authUiState.preloadProgress.currentTarget == "Carteirinha Estudantil"
-    val isLoadingQr = uiState.isRefreshingCarteirinha ||
-        (carteirinha == null && (isPreloadingCarteirinha || !uiState.hasResolvedCarteirinhaCache))
     val hasDataOrAuth = resumo != null ||
         saldo != null ||
         uiState.authState is AuthState.Authenticated ||
@@ -307,20 +270,11 @@ fun DiscenteScreen(
                     )
                 }
 
-                item(key = "ru_flip_card") {
-                    RuBalanceOrQrFlipCard(
+                item(key = "ru_balance_card") {
+                    RuBalanceCard(
                         saldo = saldo,
-                        carteirinha = carteirinha,
-                        isFlippedToQr = uiState.isFlippedToQr,
-                        boostBrightness = uiState.boostQrBrightness,
                         isLoadingSaldo = saldo == null && isLoadingEssencial,
-                        isLoadingQr = isLoadingQr,
-                        qrError = uiState.carteirinhaError,
-                        onToggleFace = onToggleQrCardFace,
-                        onToggleBrightness = onToggleBrightnessBoost,
-                        onRefreshQr = onRefreshCarteirinha,
-                        onDismissQrError = onDismissCarteirinhaError,
-                        onOpenLogin = onOpenLogin,
+                        onFlipToQr = onToggleQrCardFace,
                     )
                 }
 
@@ -947,54 +901,17 @@ private fun NavEntryCard(
 }
 
 @Composable
-private fun RuBalanceOrQrFlipCard(
+private fun RuBalanceCard(
     saldo: SaldoExtratoRu?,
-    carteirinha: CarteirinhaEstudantil?,
-    isFlippedToQr: Boolean,
-    boostBrightness: Boolean,
     isLoadingSaldo: Boolean,
-    isLoadingQr: Boolean,
-    qrError: com.unbpocket.app.ui.common.UiErrorBanner?,
-    onToggleFace: () -> Unit,
-    onToggleBrightness: () -> Unit,
-    onRefreshQr: () -> Unit,
-    onDismissQrError: () -> Unit,
-    onOpenLogin: () -> Unit,
+    onFlipToQr: () -> Unit,
 ) {
-    val rotation by animateFloatAsState(
-        targetValue = if (isFlippedToQr) 180f else 0f,
-        animationSpec = tween(durationMillis = 360, easing = FastOutSlowInEasing),
-        label = "ruQrFlipRotation",
-    )
-    val density = LocalDensity.current.density
-
-    val showingBackFace = rotation > 90f
-
-    EditorialCard(
-        modifier = Modifier.graphicsLayer {
-            rotationY = if (showingBackFace) rotation - 180f else rotation
-            cameraDistance = 12f * density
-        },
-    ) {
-        if (!showingBackFace) {
-            RuBalanceFrontFace(
-                saldo = saldo,
-                isLoading = isLoadingSaldo,
-                onFlipToQr = onToggleFace,
-            )
-        } else {
-            RuQrBackFace(
-                carteirinha = carteirinha,
-                boostBrightness = boostBrightness,
-                isLoading = isLoadingQr,
-                error = qrError,
-                onFlipToBalance = onToggleFace,
-                onToggleBrightness = onToggleBrightness,
-                onRefresh = onRefreshQr,
-                onDismissError = onDismissQrError,
-                onOpenLogin = onOpenLogin,
-            )
-        }
+    EditorialCard {
+        RuBalanceFrontFace(
+            saldo = saldo,
+            isLoading = isLoadingSaldo,
+            onFlipToQr = onFlipToQr,
+        )
     }
 }
 
@@ -1195,221 +1112,87 @@ private fun RuBalanceFrontFace(
 }
 
 @Composable
-private fun RuQrBackFace(
+fun RuFullScreenQrPass(
     carteirinha: CarteirinhaEstudantil?,
-    boostBrightness: Boolean,
     isLoading: Boolean,
-    error: com.unbpocket.app.ui.common.UiErrorBanner?,
-    onFlipToBalance: () -> Unit,
-    onToggleBrightness: () -> Unit,
-    onRefresh: () -> Unit,
-    onDismissError: () -> Unit,
-    onOpenLogin: () -> Unit,
+    hasError: Boolean,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val colors = UnbTheme.colors
     val typography = UnbTheme.typography
+    val interactionSource = remember { MutableInteractionSource() }
+    val darkInk = Color(0xFF1A1A1C)
+    val mutedInk = Color(0xFF5C5C60)
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column {
-            Text(
-                text = "PASSE DA CATRACA UNB",
-                style = typography.overline,
-                color = colors.muted,
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(Color.White)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = onDismiss,
             )
-            Text(
-                text = "QR Code Identificação",
-                style = typography.title,
-                color = colors.ink,
-            )
-        }
-        IconButtonTile(
-            active = boostBrightness,
-            onClick = onToggleBrightness,
-        )
-    }
-
-    if (error != null) {
-        Spacer(modifier = Modifier.height(UnbSpacing.sm))
-        ErrorBanner(
-            banner = error,
-            onRetry = if (error.canRetry) onRefresh else null,
-            onLoginClick = if (error.requiresLogin) onOpenLogin else null,
-            onDismiss = onDismissError,
-        )
-    }
-
-    Spacer(modifier = Modifier.height(UnbSpacing.md))
-
-    // Pure white #FFFFFF canvas with 16dp quiet margin so optical scanners read cleanly in both themes.
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = UnbShapes.card,
-        color = colors.qrCanvas,
-        shadowElevation = 0.dp,
+            .padding(horizontal = UnbSpacing.xl),
+        contentAlignment = Alignment.Center,
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(UnbSpacing.lg),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
         ) {
             when {
-                carteirinha == null && isLoading -> {
-                    SkeletonBox(
-                        modifier = Modifier.size(220.dp),
-                        shape = UnbShapes.inner,
-                        color = colors.qrInk.copy(alpha = 0.14f),
-                    )
-                    Spacer(modifier = Modifier.height(10.dp))
-                    SkeletonBox(
-                        modifier = Modifier
-                            .width(156.dp)
-                            .height(12.dp),
-                        shape = RoundedCornerShape(4.dp),
-                        color = colors.qrInk.copy(alpha = 0.14f),
-                    )
-                    Spacer(modifier = Modifier.height(6.dp))
-                    SkeletonBox(
-                        modifier = Modifier
-                            .width(112.dp)
-                            .height(10.dp),
-                        shape = RoundedCornerShape(4.dp),
-                        color = colors.qrInk.copy(alpha = 0.14f),
-                    )
-                }
-
-                carteirinha == null -> {
-                    Text(
-                        text = "QR Code ainda não carregado.",
-                        style = typography.body,
-                        color = colors.qrInk,
-                    )
-                    Spacer(modifier = Modifier.height(UnbSpacing.sm))
-                    Button(
-                        onClick = onRefresh,
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = colors.qrInk,
-                            contentColor = colors.qrCanvas,
-                        ),
-                    ) {
-                        Text(text = "Carregar QR Code", style = typography.label)
-                    }
-                }
-
-                else -> {
+                carteirinha != null -> {
                     LocalBitmapImage(
                         localPath = carteirinha.qrImageLocalPath,
                         contentDescription = "QR Code da carteirinha estudantil UnB",
-                        modifier = Modifier.size(220.dp),
+                        modifier = Modifier.size(280.dp),
                         contentScale = ContentScale.Fit,
                         fallback = {
-                            Box(
-                                modifier = Modifier
-                                    .size(220.dp)
-                                    .background(Color(0xFFF3F3F2), UnbShapes.inner),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = "Imagem QR indisponível offline.\nToque em atualizar.",
-                                    style = typography.label,
-                                    color = colors.qrInk,
-                                    textAlign = TextAlign.Center,
-                                    modifier = Modifier.padding(UnbSpacing.md),
-                                )
-                            }
+                            Text(
+                                text = "QR Code indisponível. Toque na tela para voltar.",
+                                style = typography.body,
+                                color = darkInk,
+                                textAlign = TextAlign.Center,
+                            )
                         },
                     )
-                    if (carteirinha.qrPayload16Digitos.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = carteirinha.qrPayload16Digitos,
-                            style = typography.mono,
-                            color = colors.qrInk,
-                        )
-                    }
-                    if (carteirinha.validadeTexto.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Validade: ${carteirinha.validadeTexto}",
-                            style = typography.label,
-                            color = colors.qrInk.copy(alpha = 0.7f),
-                        )
-                    }
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        text = "Mostre o QR Code na catraca a uma distância média",
+                        style = typography.body,
+                        color = darkInk,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
+                isLoading -> {
+                    SkeletonBox(
+                        modifier = Modifier.size(280.dp),
+                        shape = UnbShapes.inner,
+                        color = darkInk.copy(alpha = 0.08f),
+                    )
+                    Spacer(modifier = Modifier.height(24.dp))
+                    Text(
+                        text = "Carregando QR Code...",
+                        style = typography.body,
+                        color = mutedInk,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+
+                else -> {
+                    Text(
+                        text = if (hasError) {
+                            "Não foi possível carregar o QR Code. Toque na tela para voltar."
+                        } else {
+                            "QR Code ainda não disponível. Toque na tela para voltar."
+                        },
+                        style = typography.body,
+                        color = darkInk,
+                        textAlign = TextAlign.Center,
+                    )
                 }
             }
-        }
-    }
-
-    Spacer(modifier = Modifier.height(UnbSpacing.md))
-
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(UnbSpacing.sm),
-    ) {
-        Button(
-            onClick = onFlipToBalance,
-            modifier = Modifier
-                .weight(1f)
-                .defaultMinSize(minHeight = 48.dp),
-            shape = UnbShapes.inner,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = colors.surfaceRaised,
-                contentColor = colors.ink,
-            ),
-        ) {
-            Text(text = "Voltar para Saldo RU", style = typography.title)
-        }
-        OutlinedButton(
-            onClick = onRefresh,
-            enabled = !isLoading,
-            border = BorderStroke(1.dp, colors.border),
-            colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.ink),
-            shape = UnbShapes.inner,
-            modifier = Modifier.defaultMinSize(minHeight = 48.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.Refresh,
-                contentDescription = "Atualizar QR Code",
-                modifier = Modifier.size(18.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun IconButtonTile(
-    active: Boolean,
-    onClick: () -> Unit,
-) {
-    val colors = UnbTheme.colors
-    Surface(
-        modifier = Modifier
-            .clip(UnbShapes.tag)
-            .clickable(role = Role.Switch, onClick = onClick),
-        shape = UnbShapes.tag,
-        color = if (active) colors.pillActiveBg else colors.surfaceRaised,
-        shadowElevation = 0.dp,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Icon(
-                imageVector = Icons.Rounded.BrightnessHigh,
-                contentDescription = "Brilho máximo no QR",
-                tint = if (active) colors.pillActiveInk else colors.muted,
-                modifier = Modifier.size(16.dp),
-            )
-            Text(
-                text = "Brilho",
-                style = UnbTheme.typography.label,
-                color = if (active) colors.pillActiveInk else colors.muted,
-            )
         }
     }
 }

@@ -1,6 +1,11 @@
 package com.unbpocket.app.ui
 
+import android.app.Activity
 import android.net.Uri
+import android.view.WindowManager
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -18,7 +24,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
@@ -40,6 +49,7 @@ import com.unbpocket.app.ui.components.UnbNavigationRail
 import com.unbpocket.app.ui.discente.BoletimScreen
 import com.unbpocket.app.ui.discente.DiscenteScreen
 import com.unbpocket.app.ui.discente.DocumentosScreen
+import com.unbpocket.app.ui.discente.RuFullScreenQrPass
 import com.unbpocket.app.ui.ru.RuScreen
 import com.unbpocket.app.ui.theme.ThemeMode
 import com.unbpocket.app.ui.theme.UnbTheme
@@ -139,11 +149,61 @@ fun UnbPocketApp(
         )
     }
 
-    if (isExpandedWidth) {
+    val isQrPassOpen = discenteUiState.isFlippedToQr
+    val qrFlipRotation by animateFloatAsState(
+        targetValue = if (isQrPassOpen) 180f else 0f,
+        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+        label = "fullScreenQrFlip",
+    )
+    val showingQrPassFace = qrFlipRotation > 90f
+    val density = LocalDensity.current.density
+    val view = LocalView.current
+
+    BackHandler(enabled = isQrPassOpen) {
+        discenteViewModel.resetQrCardToBalance()
+    }
+
+    DisposableEffect(isQrPassOpen) {
+        val window = (view.context as? Activity)?.window
+        val originalBrightness = window?.attributes?.screenBrightness
+        if (window != null && isQrPassOpen) {
+            val lp = window.attributes
+            lp.screenBrightness = WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_FULL
+            window.attributes = lp
+        }
+        onDispose {
+            if (window != null && originalBrightness != null) {
+                val lp = window.attributes
+                lp.screenBrightness = originalBrightness
+                window.attributes = lp
+            }
+        }
+    }
+
+    val flipModifier = modifier
+        .fillMaxSize()
+        .graphicsLayer {
+            rotationY = if (showingQrPassFace) qrFlipRotation - 180f else qrFlipRotation
+            cameraDistance = 14f * density
+        }
+
+    if (showingQrPassFace) {
+        val isPreloadingCarteirinha = authUiState.preloadProgress.phase == PreloadPhase.RUNNING_BACKGROUND &&
+            authUiState.preloadProgress.currentTarget == "Carteirinha Estudantil"
+        val isLoadingQr = discenteUiState.isRefreshingCarteirinha ||
+            (discenteUiState.carteirinha?.value == null &&
+                (isPreloadingCarteirinha || !discenteUiState.hasResolvedCarteirinhaCache))
+
+        RuFullScreenQrPass(
+            carteirinha = discenteUiState.carteirinha?.value,
+            isLoading = isLoadingQr,
+            hasError = discenteUiState.carteirinhaError != null,
+            onDismiss = { discenteViewModel.resetQrCardToBalance() },
+            modifier = flipModifier,
+        )
+    } else if (isExpandedWidth) {
         Row(
-            modifier = modifier
-                .fillMaxSize()
-                .background(UnbTheme.colors.ground),
+            modifier = flipModifier.background(UnbTheme.colors.ground),
         ) {
             if (currentTopDestination != null) {
                 UnbNavigationRail(
@@ -155,9 +215,7 @@ fun UnbPocketApp(
         }
     } else {
         Box(
-            modifier = modifier
-                .fillMaxSize()
-                .background(UnbTheme.colors.ground),
+            modifier = flipModifier.background(UnbTheme.colors.ground),
         ) {
             navContent(Modifier.fillMaxSize())
             if (currentTopDestination != null) {
@@ -316,9 +374,7 @@ private fun UnbNavHost(
                 bottomContentPadding = bottomContentPadding,
                 onToggleTheme = onToggleTheme,
                 onToggleQrCardFace = discenteViewModel::toggleQrCardFace,
-                onToggleBrightnessBoost = discenteViewModel::toggleBrightnessBoost,
                 onRefreshProfile = discenteViewModel::refreshProfileAndSaldo,
-                onRefreshCarteirinha = { discenteViewModel.refreshCarteirinha(force = true) },
                 onSyncAll = authViewModel::syncAll,
                 onOpenBoletim = { navController.navigate(AppRoutes.BOLETIM) },
                 onOpenDocumentos = { navController.navigate(AppRoutes.DOCUMENTOS) },
@@ -328,7 +384,6 @@ private fun UnbNavHost(
                     authViewModel.logout(clearCachedData = true)
                 },
                 onDismissProfileError = discenteViewModel::dismissProfileError,
-                onDismissCarteirinhaError = discenteViewModel::dismissCarteirinhaError,
                 onDismissSyncError = authViewModel::dismissSyncError,
             )
         }

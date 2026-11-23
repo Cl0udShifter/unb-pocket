@@ -298,6 +298,10 @@ class ViewModelsTest {
         assertEquals(1, core.discenteFake.refreshCarteirinhaCalls)
         assertEquals("1234567890123456", vm.uiState.value.carteirinha?.value?.qrPayload16Digitos)
 
+        vm.resetQrCardToBalance()
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.isFlippedToQr)
+
         vm.emitirDocumento(TipoDocumentoOficial.CARTEIRINHA_ESTUDANTIL)
         advanceUntilIdle()
         assertTrue(core.discenteFake.emittedRequestedTypes.isEmpty())
