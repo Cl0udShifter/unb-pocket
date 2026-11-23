@@ -118,7 +118,7 @@ object Formatters {
 
     fun parseDayChipMeta(index: Int, dia: CardapioDiaRu): DayChipMeta {
         val norm = normalize(dia.diaSemana)
-        val shortDow = when {
+        val fromLabel = when {
             norm.contains("seg") || norm.startsWith("2") -> "SEG"
             norm.contains("ter") || norm.startsWith("3") -> "TER"
             norm.contains("qua") || norm.startsWith("4") -> "QUA"
@@ -126,17 +126,37 @@ object Formatters {
             norm.contains("sex") || norm.startsWith("6") -> "SEX"
             norm.contains("sab") -> "SÁB"
             norm.contains("dom") -> "DOM"
-            else -> dia.diaSemana.take(3).uppercase(ptBrLocale).ifBlank { "DIA" }
+            else -> null
         }
+        val shortDow = fromLabel
+            ?: weekdayFromDateText(dia.dataTexto)
+            ?: dia.diaSemana.take(3).uppercase(ptBrLocale).ifBlank { "DIA" }
         val dayNum = Regex("""(\d{1,2})/""").find(dia.dataTexto)?.groupValues?.getOrNull(1)
             ?.padStart(2, '0')
             ?: (index + 1).toString()
         val label = if (dia.diaSemana.isNotBlank() && !dia.dataTexto.startsWith("COL_")) {
             "${dia.diaSemana} (${dia.dataTexto})"
         } else {
-            dia.diaSemana.ifBlank { dia.dataTexto }
+            "$shortDow ${dia.dataTexto}".trim()
         }
         return DayChipMeta(index = index, shortDow = shortDow, dayNumber = dayNum, fullLabel = label)
+    }
+
+    private fun weekdayFromDateText(dataTexto: String): String? {
+        val match = Regex("""(\d{1,2})/(\d{1,2})/(\d{4})""").find(dataTexto) ?: return null
+        val fmt = SimpleDateFormat("dd/MM/yyyy", Locale.ROOT).apply { isLenient = false }
+        val date = runCatching { fmt.parse(match.value) }.getOrNull() ?: return null
+        val cal = Calendar.getInstance(ptBrLocale).apply { time = date }
+        return when (cal.get(Calendar.DAY_OF_WEEK)) {
+            Calendar.MONDAY -> "SEG"
+            Calendar.TUESDAY -> "TER"
+            Calendar.WEDNESDAY -> "QUA"
+            Calendar.THURSDAY -> "QUI"
+            Calendar.FRIDAY -> "SEX"
+            Calendar.SATURDAY -> "SÁB"
+            Calendar.SUNDAY -> "DOM"
+            else -> null
+        }
     }
 
     fun buildRuMenuSections(

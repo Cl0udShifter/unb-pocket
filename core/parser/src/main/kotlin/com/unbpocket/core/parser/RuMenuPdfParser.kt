@@ -273,14 +273,15 @@ object RuMenuPdfParser {
                 if (dateMatch != null) {
                     map.getOrPut(c) { DayColumnMeta() }.data = dateMatch.groupValues[1]
                     lastHeaderRow = maxOf(lastHeaderRow, r)
-                } else {
-                    val norm = CasAndJsfParser.normalizeLabel(text)
-                    if (norm.contains("feira") || norm.contains("sabado") || norm.contains("domingo")) {
-                        map.getOrPut(c) { DayColumnMeta() }.diaSemana = text
-                        lastHeaderRow = maxOf(lastHeaderRow, r)
-                    } else if (norm.contains("composicao")) {
-                        lastHeaderRow = maxOf(lastHeaderRow, r)
-                    }
+                }
+                val textWithoutDate = dateMatch?.let { text.replace(it.value, " ") } ?: text
+                val cleanDayText = textWithoutDate.replace("(", "").replace(")", "").replace(multiSpaceRegex, " ").trim()
+                val norm = CasAndJsfParser.normalizeLabel(cleanDayText)
+                if (norm.contains("feira") || norm.contains("sabado") || norm.contains("domingo")) {
+                    map.getOrPut(c) { DayColumnMeta() }.diaSemana = cleanDayText
+                    lastHeaderRow = maxOf(lastHeaderRow, r)
+                } else if (norm.contains("composicao")) {
+                    lastHeaderRow = maxOf(lastHeaderRow, r)
                 }
             }
         }

@@ -117,6 +117,11 @@ class FormattersTest {
         val metaDom = Formatters.parseDayChipMeta(6, dom)
         assertEquals("DOM", metaDom.shortDow)
         assertEquals("22", metaDom.dayNumber)
+
+        val fallbackFromDateOnly = CardapioDiaRu("23/11/2026", "", emptyMap())
+        val metaDateOnly = Formatters.parseDayChipMeta(0, fallbackFromDateOnly)
+        assertEquals("SEG", metaDateOnly.shortDow)
+        assertEquals("23", metaDateOnly.dayNumber)
     }
 
     @Test

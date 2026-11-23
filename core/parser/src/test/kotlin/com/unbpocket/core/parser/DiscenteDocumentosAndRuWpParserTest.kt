@@ -396,6 +396,10 @@ class DiscenteDocumentosAndRuWpParserTest {
         assertTrue(res is CoreResult.Success)
         val menu = (res as CoreResult.Success).value
         assertEquals(2, menu.dias.size)
+        assertEquals("2a FEIRA", menu.dias[0].diaSemana)
+        assertEquals("16/11/2026", menu.dias[0].dataTexto)
+        assertEquals("3a FEIRA", menu.dias[1].diaSemana)
+        assertEquals("17/11/2026", menu.dias[1].dataTexto)
         val mon = menu.dias[0].refeicoes[TipoRefeicao.ALMOCO].orEmpty()
         val tue = menu.dias[1].refeicoes[TipoRefeicao.ALMOCO].orEmpty()
         assertEquals("Repolho roxo", mon[0].prato)

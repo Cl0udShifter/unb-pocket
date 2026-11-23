@@ -69,6 +69,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -214,6 +215,20 @@ fun RuScreen(
             },
         )
 
+        if (dias.isNotEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = UnbSpacing.lg, vertical = UnbSpacing.xs),
+            ) {
+                RuDayChipsStrip(
+                    dias = dias,
+                    selectedIndex = uiState.selectedDayIndex,
+                    onSelectDay = onSelectDay,
+                )
+            }
+        }
+
         PullToRefreshBox(
             isRefreshing = uiState.isRefreshingMenu,
             onRefresh = onRefreshMenu,
@@ -224,7 +239,7 @@ fun RuScreen(
                 contentPadding = PaddingValues(
                     start = UnbSpacing.lg,
                     end = UnbSpacing.lg,
-                    top = UnbSpacing.xs,
+                    top = UnbSpacing.sm,
                     bottom = bottomContentPadding,
                 ),
                 verticalArrangement = Arrangement.spacedBy(UnbSpacing.md),
@@ -236,16 +251,6 @@ fun RuScreen(
                             onRetry = if (uiState.menuError.canRetry) onRefreshMenu else null,
                             onLoginClick = if (uiState.menuError.requiresLogin) onOpenLogin else null,
                             onDismiss = onDismissMenuError,
-                        )
-                    }
-                }
-
-                if (dias.isNotEmpty()) {
-                    item(key = "day_chips") {
-                        RuDayChipsStrip(
-                            dias = dias,
-                            selectedIndex = uiState.selectedDayIndex,
-                            onSelectDay = onSelectDay,
                         )
                     }
                 }
@@ -414,53 +419,88 @@ private fun RuDayChipsStrip(
     selectedIndex: Int,
     onSelectDay: (Int) -> Unit,
 ) {
+    val fitSingleRow = dias.size <= 7 && LocalDensity.current.fontScale <= 1.15f
+    if (fitSingleRow) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            dias.forEachIndexed { index, dia ->
+                RuDayChipItem(
+                    index = index,
+                    dia = dia,
+                    selected = index == selectedIndex,
+                    onClick = { onSelectDay(index) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    } else {
+        LazyRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            itemsIndexed(
+                items = dias,
+                key = { idx, item -> "${idx}_${item.dataTexto}_${item.diaSemana}" },
+            ) { index, dia ->
+                RuDayChipItem(
+                    index = index,
+                    dia = dia,
+                    selected = index == selectedIndex,
+                    onClick = { onSelectDay(index) },
+                    modifier = Modifier.widthIn(min = 54.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuDayChipItem(
+    index: Int,
+    dia: CardapioDiaRu,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
+    val meta = remember(index, dia) { Formatters.parseDayChipMeta(index, dia) }
 
-    LazyRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        modifier = modifier
+            .defaultMinSize(minHeight = 60.dp)
+            .clip(UnbShapes.inner)
+            .clickable(role = Role.Tab, onClick = onClick)
+            .semantics { contentDescription = meta.fullLabel },
+        shape = UnbShapes.inner,
+        color = if (selected) colors.pillActiveBg else colors.surface,
+        border = BorderStroke(
+            width = 1.dp,
+            color = if (selected) colors.pillActiveBg else colors.border,
+        ),
+        shadowElevation = 0.dp,
     ) {
-        itemsIndexed(
-            items = dias,
-            key = { idx, item -> "${idx}_${item.dataTexto}_${item.diaSemana}" },
-        ) { index, dia ->
-            val meta = remember(index, dia) { Formatters.parseDayChipMeta(index, dia) }
-            val selected = index == selectedIndex
-            Surface(
-                modifier = Modifier
-                    .widthIn(min = 52.dp)
-                    .defaultMinSize(minHeight = 62.dp)
-                    .clip(UnbShapes.inner)
-                    .clickable(role = Role.Tab) { onSelectDay(index) }
-                    .semantics { contentDescription = meta.fullLabel },
-                shape = UnbShapes.inner,
-                color = if (selected) colors.pillActiveBg else colors.surface,
-                border = BorderStroke(
-                    width = 1.dp,
-                    color = if (selected) colors.pillActiveBg else colors.border,
-                ),
-                shadowElevation = 0.dp,
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = meta.shortDow,
-                        style = typography.overline,
-                        color = if (selected) colors.pillActiveInk.copy(alpha = 0.75f) else colors.muted,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = meta.dayNumber,
-                        style = typography.titleStrong,
-                        color = if (selected) colors.pillActiveInk else colors.ink,
-                        maxLines = 1,
-                    )
-                }
-            }
+        Column(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = meta.shortDow,
+                style = typography.overline,
+                color = if (selected) colors.pillActiveInk.copy(alpha = 0.75f) else colors.muted,
+                maxLines = 1,
+                softWrap = false,
+            )
+            Text(
+                text = meta.dayNumber,
+                style = typography.titleStrong,
+                color = if (selected) colors.pillActiveInk else colors.ink,
+                maxLines = 1,
+                softWrap = false,
+            )
         }
     }
 }
