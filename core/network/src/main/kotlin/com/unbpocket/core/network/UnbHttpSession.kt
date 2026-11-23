@@ -1,5 +1,7 @@
 package com.unbpocket.core.network
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import okhttp3.Cookie
@@ -11,6 +13,15 @@ import okhttp3.Response
 import okio.Buffer
 import java.nio.charset.Charset
 import java.util.concurrent.TimeUnit
+
+/**
+ * Prioridade de acesso ao lock sequencial JSF (`javax.faces.ViewState`).
+ * Acoes interativas do usuario tem precedencia sobre a pre-carga em segundo plano.
+ */
+enum class JsfPriority {
+    INTERACTIVE,
+    BACKGROUND_PRELOAD,
+}
 
 /**
  * Interceptor OkHttp que aplica o guard-rail Read-Only antes de cada chamada de rede.
@@ -73,7 +84,7 @@ class InMemoryCookieJar : CookieJar {
 
 /**
  * Serializa chamadas JSF que dependem do estado sequencial `javax.faces.ViewState`
- * e expoe o cliente OkHttp configurado para o SIGAA e RU.
+ * com prioridade para interacoes do usuario sobre pre-carga em segundo plano.
  */
 class UnbHttpSession(
     val cookieJar: InMemoryCookieJar = InMemoryCookieJar(),
@@ -81,8 +92,44 @@ class UnbHttpSession(
     val noRedirectClient: OkHttpClient = defaultClient(cookieJar, followRedirects = false, SigaaReadOnlyGuard.defaultAllowedHosts),
 ) {
     private val jsfMutex = Mutex()
+    private val interactiveCounterLock = Any()
+    private val activeInteractiveCount = MutableStateFlow(0)
 
-    suspend fun <T> withJsfLock(block: suspend () -> T): T = jsfMutex.withLock { block() }
+    suspend fun <T> withJsfLock(
+        priority: JsfPriority = JsfPriority.INTERACTIVE,
+        block: suspend () -> T,
+    ): T {
+        if (priority == JsfPriority.INTERACTIVE) {
+            synchronized(interactiveCounterLock) {
+                activeInteractiveCount.value += 1
+            }
+            try {
+                return jsfMutex.withLock { block() }
+            } finally {
+                synchronized(interactiveCounterLock) {
+                    activeInteractiveCount.value = (activeInteractiveCount.value - 1).coerceAtLeast(0)
+                }
+            }
+        }
+
+        while (true) {
+            activeInteractiveCount.first { it == 0 }
+            val result = jsfMutex.withLock {
+                if (activeInteractiveCount.value > 0) {
+                    RetrySlot
+                } else {
+                    SlotResult(block())
+                }
+            }
+            if (result is SlotResult<*>) {
+                @Suppress("UNCHECKED_CAST")
+                return result.value as T
+            }
+        }
+    }
+
+    private data object RetrySlot
+    private class SlotResult<T>(val value: T)
 
     companion object {
         val SIGAA_CHARSET: Charset = Charset.forName("ISO-8859-1")

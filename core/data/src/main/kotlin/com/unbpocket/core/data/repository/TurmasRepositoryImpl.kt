@@ -22,6 +22,7 @@ import com.unbpocket.core.model.turmas.NoticiaTurmaAva
 import com.unbpocket.core.model.turmas.TarefaTurma
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import com.unbpocket.core.model.turmas.TurmaResumo
+import com.unbpocket.core.network.JsfPriority
 import com.unbpocket.core.parser.AtestadoTurmaItem
 import com.unbpocket.core.parser.CasAndJsfParser
 import com.unbpocket.core.parser.DiscentePortalParser
@@ -62,21 +63,33 @@ class TurmasRepositoryImpl(
                 is CoreResult.Failure -> return@withAuthenticatedJsf home
                 is CoreResult.Success -> home.value
             }
-            persistHomeTurmasAndFeed(
-                nav = nav,
-                homeHtml = homeHtml,
-                enriquecerViaAtestado = enriquecerViaAtestado,
-            )
+            when (
+                val res = persistHomeTurmasAndFeedWithDiff(
+                    nav = nav,
+                    homeHtml = homeHtml,
+                    enriquecerViaAtestado = enriquecerViaAtestado,
+                )
+            ) {
+                is CoreResult.Failure -> res
+                is CoreResult.Success -> CoreResult.Success(res.value.first)
+            }
         }
 
-    internal suspend fun persistHomeTurmasAndFeed(
+    internal suspend fun getCachedTurmasSnapshot(): List<TurmaResumo> =
+        cacheStore.get(
+            cacheKey = SnapshotCacheStore.Keys.TURMAS_LIST,
+            serializer = CacheMappers.turmaResumoListSerializer,
+            fromDto = { dtos -> dtos.map(CacheMappers::fromDto) },
+        )?.value.orEmpty()
+
+    internal suspend fun persistHomeTurmasAndFeedWithDiff(
         nav: SigaaNavigator,
         homeHtml: String,
         enriquecerViaAtestado: Boolean,
-    ): CoreResult<List<TurmaResumo>> {
+    ): CoreResult<Pair<List<TurmaResumo>, Boolean>> {
         val now = nav.nowMillis()
         val feed = DiscentePortalParser.parseAtualizacoesFeed(homeHtml)
-        cacheStore.put(
+        val feedChanged = cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.TURMAS_FEED,
             domain = SnapshotCacheStore.Domains.TURMAS,
             origin = DataOrigin.REMOTE,
@@ -87,11 +100,7 @@ class TurmasRepositoryImpl(
         )
 
         val homeTurmas = DiscentePortalParser.parseTurmasDaHome(homeHtml).map { it.resumo }
-        val existingByFrontEndId = cacheStore.get(
-            cacheKey = SnapshotCacheStore.Keys.TURMAS_LIST,
-            serializer = CacheMappers.turmaResumoListSerializer,
-            fromDto = { dtos -> dtos.map(CacheMappers::fromDto) },
-        )?.value?.associateBy { it.frontEndIdTurma }.orEmpty()
+        val existingByFrontEndId = getCachedTurmasSnapshot().associateBy { it.frontEndIdTurma }
 
         val atestadoItems: List<AtestadoTurmaItem> = if (enriquecerViaAtestado && homeTurmas.isNotEmpty()) {
             when (val atestadoRes = nav.postMenuDiscenteAction(ACTION_ATESTADO_MATRICULA)) {
@@ -118,7 +127,7 @@ class TurmasRepositoryImpl(
             )
         }
 
-        cacheStore.put(
+        val turmasChanged = cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.TURMAS_LIST,
             domain = SnapshotCacheStore.Domains.TURMAS,
             origin = DataOrigin.REMOTE,
@@ -128,7 +137,7 @@ class TurmasRepositoryImpl(
             toDto = { list -> list.map(CacheMappers::toDto) },
         )
 
-        return CoreResult.Success(merged)
+        return CoreResult.Success(merged to (feedChanged || turmasChanged))
     }
 
     override fun observeTurmaDetalhe(frontEndIdTurma: String): Flow<SyncedData<TurmaDetalheAva>?> =
@@ -139,10 +148,19 @@ class TurmasRepositoryImpl(
         )
 
     override suspend fun refreshTurmaDetalhe(frontEndIdTurma: String): CoreResult<TurmaDetalheAva> =
-        coordinator.withAuthenticatedJsf { nav ->
+        when (val res = refreshTurmaDetalheWithDiff(frontEndIdTurma, JsfPriority.INTERACTIVE)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    internal suspend fun refreshTurmaDetalheWithDiff(
+        frontEndIdTurma: String,
+        priority: JsfPriority,
+    ): CoreResult<Pair<TurmaDetalheAva, Boolean>> =
+        coordinator.withAuthenticatedJsf(priority = priority) { nav ->
             when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
                 is CoreResult.Failure -> entered
-                is CoreResult.Success -> CoreResult.Success(entered.value.detalhe)
+                is CoreResult.Success -> CoreResult.Success(entered.value.first.detalhe to entered.value.second)
             }
         }
 
@@ -150,7 +168,7 @@ class TurmasRepositoryImpl(
         frontEndIdTurma: String,
         idNoticia: String,
     ): CoreResult<NoticiaTurmaAva> = coordinator.withAuthenticatedJsf { nav ->
-        val avaHome = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
+        val (avaHome, _) = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
             is CoreResult.Failure -> return@withAuthenticatedJsf entered
             is CoreResult.Success -> entered.value
         }
@@ -189,12 +207,22 @@ class TurmasRepositoryImpl(
         )
 
     override suspend fun refreshFrequencia(frontEndIdTurma: String): CoreResult<MapaFrequenciaTurma> =
-        fetchAndCacheAvaMenu(
+        when (val res = refreshFrequenciaWithDiff(frontEndIdTurma, JsfPriority.INTERACTIVE)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    internal suspend fun refreshFrequenciaWithDiff(
+        frontEndIdTurma: String,
+        priority: JsfPriority,
+    ): CoreResult<Pair<MapaFrequenciaTurma, Boolean>> =
+        fetchAndCacheAvaMenuWithDiff(
             frontEndIdTurma = frontEndIdTurma,
             menuLabel = "frequencia",
             cacheKey = SnapshotCacheStore.Keys.turmaFrequencia(frontEndIdTurma),
             serializer = MapaFrequenciaTurmaDto.serializer(),
             toDto = CacheMappers::toDto,
+            priority = priority,
             parser = TurmaVirtualParser::parseAvaFrequencia,
         )
 
@@ -206,12 +234,22 @@ class TurmasRepositoryImpl(
         )
 
     override suspend fun refreshNotasParciais(frontEndIdTurma: String): CoreResult<NotasParciaisTurma> =
-        fetchAndCacheAvaMenu(
+        when (val res = refreshNotasParciaisWithDiff(frontEndIdTurma, JsfPriority.INTERACTIVE)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    internal suspend fun refreshNotasParciaisWithDiff(
+        frontEndIdTurma: String,
+        priority: JsfPriority,
+    ): CoreResult<Pair<NotasParciaisTurma, Boolean>> =
+        fetchAndCacheAvaMenuWithDiff(
             frontEndIdTurma = frontEndIdTurma,
             menuLabel = "ver notas",
             cacheKey = SnapshotCacheStore.Keys.turmaNotas(frontEndIdTurma),
             serializer = NotasParciaisTurmaDto.serializer(),
             toDto = CacheMappers::toDto,
+            priority = priority,
             parser = TurmaVirtualParser::parseAvaNotasParciais,
         )
 
@@ -223,12 +261,22 @@ class TurmasRepositoryImpl(
         )
 
     override suspend fun refreshAvaliacoes(frontEndIdTurma: String): CoreResult<List<AvaliacaoTurma>> =
-        fetchAndCacheAvaMenu(
+        when (val res = refreshAvaliacoesWithDiff(frontEndIdTurma, JsfPriority.INTERACTIVE)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    internal suspend fun refreshAvaliacoesWithDiff(
+        frontEndIdTurma: String,
+        priority: JsfPriority,
+    ): CoreResult<Pair<List<AvaliacaoTurma>, Boolean>> =
+        fetchAndCacheAvaMenuWithDiff(
             frontEndIdTurma = frontEndIdTurma,
             menuLabel = "avaliacoes",
             cacheKey = SnapshotCacheStore.Keys.turmaAvaliacoes(frontEndIdTurma),
             serializer = CacheMappers.avaliacaoListSerializer,
             toDto = { list -> list.map(CacheMappers::toDto) },
+            priority = priority,
             parser = TurmaVirtualParser::parseAvaAvaliacoes,
         )
 
@@ -240,12 +288,22 @@ class TurmasRepositoryImpl(
         )
 
     override suspend fun refreshTarefas(frontEndIdTurma: String): CoreResult<List<TarefaTurma>> =
-        fetchAndCacheAvaMenu(
+        when (val res = refreshTarefasWithDiff(frontEndIdTurma, JsfPriority.INTERACTIVE)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    internal suspend fun refreshTarefasWithDiff(
+        frontEndIdTurma: String,
+        priority: JsfPriority,
+    ): CoreResult<Pair<List<TarefaTurma>, Boolean>> =
+        fetchAndCacheAvaMenuWithDiff(
             frontEndIdTurma = frontEndIdTurma,
             menuLabel = "tarefas",
             cacheKey = SnapshotCacheStore.Keys.turmaTarefas(frontEndIdTurma),
             serializer = CacheMappers.tarefaListSerializer,
             toDto = { list -> list.map(CacheMappers::toDto) },
+            priority = priority,
             parser = TurmaVirtualParser::parseAvaTarefas,
         )
 
@@ -253,7 +311,7 @@ class TurmasRepositoryImpl(
         frontEndIdTurma: String,
         materialId: String,
     ): CoreResult<ArquivoBaixado> = coordinator.withAuthenticatedJsf { nav ->
-        val avaHome = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
+        val (avaHome, _) = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
             is CoreResult.Failure -> return@withAuthenticatedJsf entered
             is CoreResult.Success -> entered.value
         }
@@ -283,7 +341,7 @@ class TurmasRepositoryImpl(
         if (ref == null) {
             val entered = enterAvaHomeLocked(nav, frontEndIdTurma)
             if (entered is CoreResult.Failure) return@withAuthenticatedJsf entered
-            ref = (entered as CoreResult.Success).value.anexoRefs[anexoId]
+            ref = (entered as CoreResult.Success).value.first.anexoRefs[anexoId]
         }
 
         val resolvedRef = ref ?: return@withAuthenticatedJsf CoreResult.Failure(
@@ -310,15 +368,16 @@ class TurmasRepositoryImpl(
         )
     }
 
-    private suspend fun <T, D> fetchAndCacheAvaMenu(
+    private suspend fun <T, D> fetchAndCacheAvaMenuWithDiff(
         frontEndIdTurma: String,
         menuLabel: String,
         cacheKey: String,
         serializer: kotlinx.serialization.KSerializer<D>,
         toDto: (T) -> D,
+        priority: JsfPriority,
         parser: (String) -> CoreResult<T>,
-    ): CoreResult<T> = coordinator.withAuthenticatedJsf { nav ->
-        val avaHome = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
+    ): CoreResult<Pair<T, Boolean>> = coordinator.withAuthenticatedJsf(priority = priority) { nav ->
+        val (avaHome, detailChanged) = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
             is CoreResult.Failure -> return@withAuthenticatedJsf entered
             is CoreResult.Success -> entered.value
         }
@@ -333,25 +392,27 @@ class TurmasRepositoryImpl(
             is CoreResult.Success -> res.value
         }
 
-        val parsed = parser(menuPayload.decodeSigaaIso88591())
-        if (parsed is CoreResult.Success) {
-            cacheStore.put(
-                cacheKey = cacheKey,
-                domain = SnapshotCacheStore.Domains.TURMAS,
-                origin = DataOrigin.REMOTE,
-                syncedAtEpochMillis = nav.nowMillis(),
-                value = parsed.value,
-                serializer = serializer,
-                toDto = toDto,
-            )
+        when (val parsed = parser(menuPayload.decodeSigaaIso88591())) {
+            is CoreResult.Failure -> parsed
+            is CoreResult.Success -> {
+                val menuChanged = cacheStore.put(
+                    cacheKey = cacheKey,
+                    domain = SnapshotCacheStore.Domains.TURMAS,
+                    origin = DataOrigin.REMOTE,
+                    syncedAtEpochMillis = nav.nowMillis(),
+                    value = parsed.value,
+                    serializer = serializer,
+                    toDto = toDto,
+                )
+                CoreResult.Success(parsed.value to (detailChanged || menuChanged))
+            }
         }
-        parsed
     }
 
     private suspend fun enterAvaHomeLocked(
         nav: SigaaNavigator,
         frontEndIdTurma: String,
-    ): CoreResult<ParsedAvaHome> {
+    ): CoreResult<Pair<ParsedAvaHome, Boolean>> {
         val homeHtml = when (val res = nav.getPortalHomeHtml()) {
             is CoreResult.Failure -> return res
             is CoreResult.Success -> res.value
@@ -378,7 +439,7 @@ class TurmasRepositoryImpl(
 
         runtimeAvaCache[frontEndIdTurma] = parsedAva
         val now = nav.nowMillis()
-        cacheStore.put(
+        val detailChanged = cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.turmaDetalhe(frontEndIdTurma),
             domain = SnapshotCacheStore.Domains.TURMAS,
             origin = DataOrigin.REMOTE,
@@ -388,20 +449,20 @@ class TurmasRepositoryImpl(
             toDto = CacheMappers::toDto,
         )
 
-        enrichTurmasListFromFormTurma(parsedAva.formTurmaItems, now)
-        return CoreResult.Success(parsedAva)
+        val listEnriched = enrichTurmasListFromFormTurma(parsedAva.formTurmaItems, now)
+        return CoreResult.Success(parsedAva to (detailChanged || listEnriched))
     }
 
     private suspend fun enrichTurmasListFromFormTurma(
         formItems: List<ParsedAvaFormTurmaItem>,
         now: Long,
-    ) {
-        if (formItems.isEmpty()) return
+    ): Boolean {
+        if (formItems.isEmpty()) return false
         val existing = cacheStore.get(
             cacheKey = SnapshotCacheStore.Keys.TURMAS_LIST,
             serializer = CacheMappers.turmaResumoListSerializer,
             fromDto = { dtos -> dtos.map(CacheMappers::fromDto) },
-        )?.value ?: return
+        )?.value ?: return false
 
         val byFrontEndId = formItems.associateBy { it.frontEndIdTurma }
         val updated = existing.map { turma ->
@@ -411,7 +472,7 @@ class TurmasRepositoryImpl(
                 cargaHorariaHoras = item.cargaHorariaHoras ?: turma.cargaHorariaHoras,
             )
         }
-        cacheStore.put(
+        return cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.TURMAS_LIST,
             domain = SnapshotCacheStore.Domains.TURMAS,
             origin = DataOrigin.REMOTE,

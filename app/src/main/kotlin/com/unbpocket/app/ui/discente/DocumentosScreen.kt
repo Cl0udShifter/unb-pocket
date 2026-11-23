@@ -23,7 +23,6 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -41,6 +40,7 @@ import com.unbpocket.app.ui.components.EditorialCard
 import com.unbpocket.app.ui.components.EditorialHeader
 import com.unbpocket.app.ui.components.ErrorBanner
 import com.unbpocket.app.ui.components.InfoCalloutRow
+import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
 import com.unbpocket.app.ui.theme.UnbShapes
@@ -194,10 +194,10 @@ fun DocumentosScreen(
                         ),
                     ) {
                         if (isEmittingThis) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(16.dp),
-                                strokeWidth = 2.dp,
-                                color = colors.ink,
+                            SkeletonInlineBar(
+                                width = 22.dp,
+                                height = 7.dp,
+                                color = colors.muted,
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(text = "Emitindo PDF...", style = typography.label)

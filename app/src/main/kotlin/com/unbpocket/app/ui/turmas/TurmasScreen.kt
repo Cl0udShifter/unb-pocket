@@ -39,12 +39,10 @@ import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -69,6 +67,7 @@ import com.unbpocket.app.ui.components.SegmentedPillBar
 import com.unbpocket.app.ui.components.SkeletonCard
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
+import com.unbpocket.app.ui.components.UnbPullToRefreshBox
 import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
@@ -80,7 +79,6 @@ import com.unbpocket.core.model.turmas.DiaSemanaSigaa
 import com.unbpocket.core.model.turmas.TurmaResumo
 import java.util.Calendar
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TurmasScreen(
     uiState: TurmasUiState,
@@ -182,7 +180,7 @@ fun TurmasScreen(
             return
         }
 
-        PullToRefreshBox(
+        UnbPullToRefreshBox(
             isRefreshing = uiState.isRefreshingList,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),

@@ -26,7 +26,7 @@ data class SyncedData<out T>(
 )
 ```
 
-### 1.2 `CoreResult<T>` e `PortalHomeSyncSummary`
+### 1.2 `CoreResult<T>`, `PortalHomeSyncSummary` e `PreloadProgress`
 
 ```kotlin
 sealed interface CoreResult<out T> {
@@ -39,6 +39,23 @@ data class PortalHomeSyncSummary(
     val turmasCount: Int,
     val atualizacoesCount: Int,
     val saldoRuAtualizado: Boolean,
+    val anyDataChanged: Boolean = false,
+)
+
+enum class PreloadPhase {
+    IDLE,
+    RUNNING_ESSENTIAL,
+    RUNNING_BACKGROUND,
+    COMPLETED,
+}
+
+data class PreloadProgress(
+    val phase: PreloadPhase = PreloadPhase.IDLE,
+    val completedSteps: Int = 0,
+    val totalSteps: Int = 0,
+    val currentTarget: String? = null,
+    val updatedAnyData: Boolean = false,
+    val lastError: CoreError? = null,
 )
 ```
 
@@ -132,10 +149,18 @@ interface UnbPocketCore {
     val turmas: TurmasRepository
     val discente: DiscenteRepository
 
+    val preloadProgress: StateFlow<PreloadProgress>
+
     suspend fun syncPortalHome(includeSaldoRu: Boolean = true): CoreResult<PortalHomeSyncSummary>
+
+    fun startBackgroundPreload(includeTurmaDetails: Boolean = true)
+
+    suspend fun silentRefreshAll(includeTurmaDetails: Boolean = true): CoreResult<PortalHomeSyncSummary>
 }
 ```
-* `syncPortalHome` executa uma unica captura coordenada de `discente.jsf` (+ `#formExibirExtrato` opcional) e atualiza atomicamente `DiscenteResumo`, `TurmaResumo`, `AtualizacaoTurmaFeed` e `SaldoExtratoRu` no Room.
+* `syncPortalHome` executa a Fase 1 da pre-carga usando `discente.jsf` (reutilizando o HTML capturado no login CAS quando recem-autenticado, sem nova requisicao redundante) + Atestado de Matricula + `#formExibirExtrato` opcional, atualizando `DiscenteResumo`, `TurmaResumo`, `AtualizacaoTurmaFeed` e `SaldoExtratoRu` no Room quando houver alteracao estrutural (`anyDataChanged`).
+* `startBackgroundPreload` inicia de forma nao-bloqueante a Fase 2 no escopo do Core (`CarteirinhaEstudantil`, `BoletimSemestre` e, para cada turma matriculada, detalhes AVA, frequencia, notas parciais, avaliacoes e tarefas), reportando progresso em `preloadProgress`. Em `logout`, a pre-carga ativa e cancelada imediatamente.
+* `silentRefreshAll` implementa o fluxo Stale-While-Revalidate na abertura do app com credenciais salvas: valida/renova a sessao (`ensureValidSession`), executa `syncPortalHome` e dispara `startBackgroundPreload`. Alteracoes reais propagam via Room `Flow`; payloads identicos mantem o estado visual intacto sem sobrescrita nem banners transientes de falha.
 
 ### 4.2 `AuthRepository`
 * `val authState: StateFlow<AuthState>`
@@ -190,8 +215,9 @@ interface UnbPocketCore {
 
 ## 5. Invariantes Operacionais do Core
 
-1. **Serializacao JSF (`ViewState`):** Toda requisicao autenticada ao `sigaa.unb.br` executa sob `UnbHttpSession.withJsfLock`, evitando colisao de `javax.faces.ViewState` entre telas/repositorios. Chamadas publicas ao `ru.unb.br` correm em paralelo.
+1. **Serializacao JSF (`ViewState`) com Preempcao por Prioridade:** Toda requisicao autenticada ao `sigaa.unb.br` executa sob `UnbHttpSession.withJsfLock(priority)` com dois niveis (`INTERACTIVE` e `BACKGROUND_PRELOAD`). Acoes explicitas do usuario passam na frente de etapas pendentes da pre-carga em segundo plano sem quebrar a exclusao mutua sobre `javax.faces.ViewState`. Chamadas publicas ao `ru.unb.br` correm em paralelo.
 2. **Encoding `ISO-8859-1`:** Respostas HTML do SIGAA sao decodificadas com `Charset.forName("ISO-8859-1")` antes de entrarem no Jsoup.
 3. **Contrato Read-Only:** `SigaaReadOnlyInterceptor` valida host, metodo e payload antes de abrir socket. Qualquer `POST` fora da whitelist ou com token mutavel aborta com `CoreError.ReadOnlyViolation`.
 4. **Valores Monetarios em Centavos (`Long`):** Saldo, extrato e tarifas do RU usam `Long` em centavos para evitar imprecisao de ponto flutuante.
 5. **Credenciais Seguras:** `KeystoreCredentialVault` cifra matricula e senha via Android Keystore (`AES/GCM/NoPadding`) dentro de `noBackupFilesDir`, isolado de backups automaticos.
+6. **Cache com Comparacao Estrutural (Diff-Before-Write):** `SnapshotCacheStore` compara `payloadJson` e `origin` antes de gravar no Room; snapshots identicos nao disparam upsert nem reemissoes visuais desnecessarias na UI.

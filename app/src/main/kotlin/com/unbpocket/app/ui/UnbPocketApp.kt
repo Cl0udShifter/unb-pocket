@@ -246,10 +246,17 @@ private fun UnbNavHost(
         }
 
         composable(TopDestination.TURMAS.route) {
-            LaunchedEffect(authUiState.authState, turmasUiState.turmas == null) {
+            LaunchedEffect(
+                authUiState.authState,
+                turmasUiState.turmas == null,
+                authUiState.isSubmittingLogin,
+                authUiState.isSyncingAll,
+            ) {
                 if (authUiState.authState is AuthState.Authenticated &&
                     turmasUiState.turmas == null &&
-                    !turmasUiState.isRefreshingList
+                    !turmasUiState.isRefreshingList &&
+                    !authUiState.isSubmittingLogin &&
+                    !authUiState.isSyncingAll
                 ) {
                     turmasViewModel.refreshSemestre()
                 }
@@ -272,10 +279,17 @@ private fun UnbNavHost(
         }
 
         composable(TopDestination.DISCENTE.route) {
-            LaunchedEffect(authUiState.authState, discenteUiState.discenteResumo == null) {
+            LaunchedEffect(
+                authUiState.authState,
+                discenteUiState.discenteResumo == null,
+                authUiState.isSubmittingLogin,
+                authUiState.isSyncingAll,
+            ) {
                 if (authUiState.authState is AuthState.Authenticated &&
                     discenteUiState.discenteResumo == null &&
-                    !discenteUiState.isRefreshingProfile
+                    !discenteUiState.isRefreshingProfile &&
+                    !authUiState.isSubmittingLogin &&
+                    !authUiState.isSyncingAll
                 ) {
                     discenteViewModel.refreshProfileAndSaldo()
                 }
@@ -349,10 +363,17 @@ private fun UnbNavHost(
         }
 
         composable(AppRoutes.BOLETIM) {
-            LaunchedEffect(authUiState.authState, discenteUiState.boletim == null) {
+            LaunchedEffect(
+                authUiState.authState,
+                discenteUiState.boletim == null,
+                authUiState.isSubmittingLogin,
+                authUiState.isSyncingAll,
+            ) {
                 if (authUiState.authState is AuthState.Authenticated &&
                     discenteUiState.boletim == null &&
-                    !discenteUiState.isRefreshingBoletim
+                    !discenteUiState.isRefreshingBoletim &&
+                    !authUiState.isSubmittingLogin &&
+                    !authUiState.isSyncingAll
                 ) {
                     discenteViewModel.refreshBoletim()
                 }

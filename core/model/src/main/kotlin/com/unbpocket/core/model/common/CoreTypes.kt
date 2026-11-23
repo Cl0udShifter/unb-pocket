@@ -27,6 +27,29 @@ data class PortalHomeSyncSummary(
     val turmasCount: Int,
     val atualizacoesCount: Int,
     val saldoRuAtualizado: Boolean,
+    val anyDataChanged: Boolean = false,
+)
+
+/**
+ * Fase atual do pre-carregamento automatico em segundo plano.
+ */
+enum class PreloadPhase {
+    IDLE,
+    RUNNING_ESSENTIAL,
+    RUNNING_BACKGROUND,
+    COMPLETED,
+}
+
+/**
+ * Progresso observavel da pre-carga silenciosa de todas as informacoes da conta.
+ */
+data class PreloadProgress(
+    val phase: PreloadPhase = PreloadPhase.IDLE,
+    val completedSteps: Int = 0,
+    val totalSteps: Int = 0,
+    val currentTarget: String? = null,
+    val updatedAnyData: Boolean = false,
+    val lastError: CoreError? = null,
 )
 
 /**

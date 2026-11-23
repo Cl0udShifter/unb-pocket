@@ -18,6 +18,7 @@ import com.unbpocket.core.model.discente.CarteirinhaEstudantil
 import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.discente.DocumentoOficialEmitido
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
+import com.unbpocket.core.network.JsfPriority
 import com.unbpocket.core.parser.DiscenteDocumentosParser
 import com.unbpocket.core.parser.DiscentePortalParser
 import kotlinx.coroutines.flow.Flow
@@ -47,26 +48,32 @@ class DiscenteRepositoryImpl(
                 is CoreResult.Failure -> return@withAuthenticatedJsf home
                 is CoreResult.Success -> home.value
             }
-            persistResumoFromHomeHtml(nav, homeHtml)
+            when (val res = persistResumoFromHomeHtmlWithDiff(nav, homeHtml)) {
+                is CoreResult.Failure -> res
+                is CoreResult.Success -> CoreResult.Success(res.value.first)
+            }
         }
 
-    internal suspend fun persistResumoFromHomeHtml(
+    internal suspend fun persistResumoFromHomeHtmlWithDiff(
         nav: SigaaNavigator,
         homeHtml: String,
-    ): CoreResult<DiscenteResumo> {
+    ): CoreResult<Pair<DiscenteResumo, Boolean>> {
         val parsed = DiscentePortalParser.parseDiscenteResumo(homeHtml)
-        if (parsed is CoreResult.Success) {
-            cacheStore.put(
-                cacheKey = SnapshotCacheStore.Keys.DISCENTE_RESUMO,
-                domain = SnapshotCacheStore.Domains.DISCENTE,
-                origin = DataOrigin.REMOTE,
-                syncedAtEpochMillis = nav.nowMillis(),
-                value = parsed.value,
-                serializer = DiscenteResumoDto.serializer(),
-                toDto = CacheMappers::toDto,
-            )
+        return when (parsed) {
+            is CoreResult.Failure -> parsed
+            is CoreResult.Success -> {
+                val changed = cacheStore.put(
+                    cacheKey = SnapshotCacheStore.Keys.DISCENTE_RESUMO,
+                    domain = SnapshotCacheStore.Domains.DISCENTE,
+                    origin = DataOrigin.REMOTE,
+                    syncedAtEpochMillis = nav.nowMillis(),
+                    value = parsed.value,
+                    serializer = DiscenteResumoDto.serializer(),
+                    toDto = CacheMappers::toDto,
+                )
+                CoreResult.Success(parsed.value to changed)
+            }
         }
-        return parsed
     }
 
     override fun observeCarteirinha(): Flow<SyncedData<CarteirinhaEstudantil>?> =
@@ -76,7 +83,16 @@ class DiscenteRepositoryImpl(
             fromDto = CacheMappers::fromDto,
         )
 
-    override suspend fun refreshCarteirinha(force: Boolean): CoreResult<CarteirinhaEstudantil> {
+    override suspend fun refreshCarteirinha(force: Boolean): CoreResult<CarteirinhaEstudantil> =
+        when (val res = refreshCarteirinhaWithDiff(force = force, priority = JsfPriority.INTERACTIVE)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    internal suspend fun refreshCarteirinhaWithDiff(
+        force: Boolean,
+        priority: JsfPriority,
+    ): CoreResult<Pair<CarteirinhaEstudantil, Boolean>> {
         if (!force) {
             val cached = cacheStore.get(
                 cacheKey = SnapshotCacheStore.Keys.DISCENTE_CARTEIRINHA,
@@ -84,11 +100,11 @@ class DiscenteRepositoryImpl(
                 fromDto = CacheMappers::fromDto,
             )?.value
             if (cached != null && File(cached.qrImageLocalPath).exists() && File(cached.pdfLocalPath).exists()) {
-                return CoreResult.Success(cached)
+                return CoreResult.Success(cached to false)
             }
         }
 
-        return coordinator.withAuthenticatedJsf { nav ->
+        return coordinator.withAuthenticatedJsf(priority = priority) { nav ->
             emitAndSaveCarteirinhaLocked(nav)
         }
     }
@@ -101,25 +117,35 @@ class DiscenteRepositoryImpl(
         )
 
     override suspend fun refreshBoletimGeral(): CoreResult<List<BoletimSemestre>> =
-        coordinator.withAuthenticatedJsf { nav ->
+        when (val res = refreshBoletimGeralWithDiff(priority = JsfPriority.INTERACTIVE)) {
+            is CoreResult.Failure -> res
+            is CoreResult.Success -> CoreResult.Success(res.value.first)
+        }
+
+    internal suspend fun refreshBoletimGeralWithDiff(
+        priority: JsfPriority,
+    ): CoreResult<Pair<List<BoletimSemestre>, Boolean>> =
+        coordinator.withAuthenticatedJsf(priority = priority) { nav ->
             val payload = when (val res = nav.postMenuDiscenteAction(ACTION_RELATORIO_NOTAS)) {
                 is CoreResult.Failure -> return@withAuthenticatedJsf res
                 is CoreResult.Success -> res.value
             }
 
-            val parsed = DiscenteDocumentosParser.parseBoletimGeral(payload.decodeSigaaIso88591())
-            if (parsed is CoreResult.Success) {
-                cacheStore.put(
-                    cacheKey = SnapshotCacheStore.Keys.DISCENTE_BOLETIM,
-                    domain = SnapshotCacheStore.Domains.DISCENTE,
-                    origin = DataOrigin.REMOTE,
-                    syncedAtEpochMillis = nav.nowMillis(),
-                    value = parsed.value,
-                    serializer = CacheMappers.boletimListSerializer,
-                    toDto = { list -> list.map(CacheMappers::toDto) },
-                )
+            when (val parsed = DiscenteDocumentosParser.parseBoletimGeral(payload.decodeSigaaIso88591())) {
+                is CoreResult.Failure -> parsed
+                is CoreResult.Success -> {
+                    val changed = cacheStore.put(
+                        cacheKey = SnapshotCacheStore.Keys.DISCENTE_BOLETIM,
+                        domain = SnapshotCacheStore.Domains.DISCENTE,
+                        origin = DataOrigin.REMOTE,
+                        syncedAtEpochMillis = nav.nowMillis(),
+                        value = parsed.value,
+                        serializer = CacheMappers.boletimListSerializer,
+                        toDto = { list -> list.map(CacheMappers::toDto) },
+                    )
+                    CoreResult.Success(parsed.value to changed)
+                }
             }
-            parsed
         }
 
     override fun observeDocumentosEmitidos(): Flow<List<DocumentoOficialEmitido>> =
@@ -134,7 +160,7 @@ class DiscenteRepositoryImpl(
     ): CoreResult<DocumentoOficialEmitido> = coordinator.withAuthenticatedJsf { nav ->
         val emitted = when (tipo) {
             TipoDocumentoOficial.CARTEIRINHA_ESTUDANTIL -> {
-                val carteirinha = when (val res = emitAndSaveCarteirinhaLocked(nav)) {
+                val (carteirinha, _) = when (val res = emitAndSaveCarteirinhaLocked(nav)) {
                     is CoreResult.Failure -> return@withAuthenticatedJsf res
                     is CoreResult.Success -> res.value
                 }
@@ -186,7 +212,7 @@ class DiscenteRepositoryImpl(
 
     private suspend fun emitAndSaveCarteirinhaLocked(
         nav: SigaaNavigator,
-    ): CoreResult<CarteirinhaEstudantil> {
+    ): CoreResult<Pair<CarteirinhaEstudantil, Boolean>> {
         val payload = when (val res = nav.postMenuDiscenteAction(ACTION_CARTEIRINHA)) {
             is CoreResult.Failure -> return res
             is CoreResult.Success -> res.value
@@ -234,7 +260,7 @@ class DiscenteRepositoryImpl(
             )
         }
 
-        cacheStore.put(
+        val changed = cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.DISCENTE_CARTEIRINHA,
             domain = SnapshotCacheStore.Domains.DISCENTE,
             origin = DataOrigin.REMOTE,
@@ -243,7 +269,7 @@ class DiscenteRepositoryImpl(
             serializer = CarteirinhaEstudantilDto.serializer(),
             toDto = CacheMappers::toDto,
         )
-        return CoreResult.Success(carteirinha)
+        return CoreResult.Success(carteirinha to changed)
     }
 
     private suspend fun emitTextOrPdfDocument(

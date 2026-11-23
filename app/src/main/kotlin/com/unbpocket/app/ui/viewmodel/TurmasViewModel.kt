@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
@@ -234,7 +235,8 @@ class TurmasViewModel(
         activeTurmaId.value = frontEndIdTurma
         detailControl.value = TurmaDetailControl()
         viewModelScope.launch {
-            refreshTurmaDetalheInternal(frontEndIdTurma)
+            val hasCached = core.turmas.observeTurmaDetalhe(frontEndIdTurma).first() != null
+            refreshTurmaDetalheInternal(frontEndIdTurma, silent = hasCached)
         }
     }
 
@@ -281,15 +283,25 @@ class TurmasViewModel(
         }
     }
 
-    private suspend fun refreshTurmaDetalheInternal(id: String) {
-        detailControl.update { it.copy(isRefreshingDetail = true, detailError = null) }
+    private suspend fun refreshTurmaDetalheInternal(id: String, silent: Boolean = false) {
+        if (!silent) {
+            detailControl.update { it.copy(isRefreshingDetail = true, detailError = null) }
+        }
         when (val res = core.turmas.refreshTurmaDetalhe(id)) {
-            is CoreResult.Success -> detailControl.update { it.copy(isRefreshingDetail = false) }
-            is CoreResult.Failure -> detailControl.update {
-                it.copy(
-                    isRefreshingDetail = false,
-                    detailError = CoreErrorMapper.toUiError(res.error),
-                )
+            is CoreResult.Success -> {
+                if (!silent) {
+                    detailControl.update { it.copy(isRefreshingDetail = false) }
+                }
+            }
+            is CoreResult.Failure -> {
+                if (!silent) {
+                    detailControl.update {
+                        it.copy(
+                            isRefreshingDetail = false,
+                            detailError = CoreErrorMapper.toUiError(res.error),
+                        )
+                    }
+                }
             }
         }
     }

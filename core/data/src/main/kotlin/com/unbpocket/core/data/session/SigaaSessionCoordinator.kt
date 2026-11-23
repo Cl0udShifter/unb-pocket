@@ -9,6 +9,7 @@ import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.contract.AuthRepository
 import com.unbpocket.core.network.HttpPayload
+import com.unbpocket.core.network.JsfPriority
 import com.unbpocket.core.network.UnbHttpTransport
 import com.unbpocket.core.parser.CasAndJsfParser
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -25,12 +26,27 @@ class SigaaSessionCoordinator(
     private val cacheStore: SnapshotCacheStore,
     private val fileStore: FileStore,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val onLogoutHook: () -> Unit = {},
 ) : AuthRepository {
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     override val authState: StateFlow<AuthState> = _authState.asStateFlow()
 
+    @Volatile
+    private var freshLoginPortalHtml: String? = null
+
+    @Volatile
+    private var freshLoginCapturedAtMillis: Long = 0L
+
+    fun consumeFreshLoginPortalHtml(): String? {
+        val html = freshLoginPortalHtml ?: return null
+        val capturedAt = freshLoginCapturedAtMillis
+        freshLoginPortalHtml = null
+        freshLoginCapturedAtMillis = 0L
+        return if (clockMillis() - capturedAt <= FRESH_HTML_TTL_MILLIS) html else null
+    }
+
     override suspend fun login(credentials: CredentialsInput): CoreResult<AuthState.Authenticated> =
-        transport.session.withJsfLock {
+        transport.session.withJsfLock(JsfPriority.INTERACTIVE) {
             loginLocked(credentials)
         }
 
@@ -45,12 +61,15 @@ class SigaaSessionCoordinator(
             return CoreResult.Success(current)
         }
 
-        return transport.session.withJsfLock {
+        return transport.session.withJsfLock(JsfPriority.INTERACTIVE) {
             ensureValidSessionLocked()
         }
     }
 
     override suspend fun logout(clearCachedData: Boolean): CoreResult<Unit> = runCatching {
+        onLogoutHook()
+        freshLoginPortalHtml = null
+        freshLoginCapturedAtMillis = 0L
         transport.session.cookieJar.clear()
         vault.clear()
         if (clearCachedData) {
@@ -74,8 +93,9 @@ class SigaaSessionCoordinator(
      * re-autenticacao silenciosa se o servidor redirecionar para o CAS no meio da sessao.
      */
     suspend fun <T> withAuthenticatedJsf(
+        priority: JsfPriority = JsfPriority.INTERACTIVE,
         block: suspend (SigaaNavigator) -> CoreResult<T>,
-    ): CoreResult<T> = transport.session.withJsfLock {
+    ): CoreResult<T> = transport.session.withJsfLock(priority) {
         when (val sessionCheck = ensureValidSessionLocked()) {
             is CoreResult.Failure -> return@withJsfLock sessionCheck
             is CoreResult.Success -> Unit
@@ -191,6 +211,8 @@ class SigaaSessionCoordinator(
             sessionExpiresAtEpochMillis = clockMillis() + SESSION_TIMEOUT_MILLIS,
             hasStoredCredentials = credentials.rememberCredentials,
         )
+        freshLoginPortalHtml = portalHtml
+        freshLoginCapturedAtMillis = clockMillis()
         _authState.value = authenticated
         return CoreResult.Success(authenticated)
     }
@@ -208,6 +230,7 @@ class SigaaSessionCoordinator(
     private companion object {
         const val SESSION_TIMEOUT_MILLIS = 40 * 60 * 1000L
         const val SAFETY_MARGIN_MILLIS = 60 * 1000L
+        const val FRESH_HTML_TTL_MILLIS = 30 * 1000L
     }
 }
 

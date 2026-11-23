@@ -4,6 +4,7 @@ import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.auth.CredentialsInput
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.PortalHomeSyncSummary
+import com.unbpocket.core.model.common.PreloadProgress
 import com.unbpocket.core.model.common.SyncedData
 import com.unbpocket.core.model.discente.BoletimSemestre
 import com.unbpocket.core.model.discente.CarteirinhaEstudantil
@@ -159,5 +160,11 @@ interface UnbPocketCore {
     val turmas: TurmasRepository
     val discente: DiscenteRepository
 
+    val preloadProgress: StateFlow<PreloadProgress>
+
     suspend fun syncPortalHome(includeSaldoRu: Boolean = true): CoreResult<PortalHomeSyncSummary>
+
+    fun startBackgroundPreload(includeTurmaDetails: Boolean = true)
+
+    suspend fun silentRefreshAll(includeTurmaDetails: Boolean = true): CoreResult<PortalHomeSyncSummary>
 }

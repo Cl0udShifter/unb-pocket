@@ -36,7 +36,6 @@ import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -70,6 +69,7 @@ import com.unbpocket.app.ui.components.ErrorBanner
 import com.unbpocket.app.ui.components.HairlineDivider
 import com.unbpocket.app.ui.components.InfoCalloutRow
 import com.unbpocket.app.ui.components.InnerTile
+import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
 import com.unbpocket.app.ui.theme.ThemeMode
@@ -257,13 +257,16 @@ fun LoginScreen(
                     ),
                 ) {
                     if (uiState.isSubmittingLogin) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                            color = colors.ink,
+                        SkeletonInlineBar(
+                            width = 24.dp,
+                            height = 7.dp,
+                            color = colors.muted,
                         )
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text(text = "Autenticando no CAS...", style = typography.title)
+                        Text(
+                            text = uiState.syncStatusMessage ?: "Autenticando no CAS...",
+                            style = typography.title,
+                        )
                     } else {
                         Icon(
                             imageVector = Icons.Rounded.Lock,
@@ -410,10 +413,10 @@ fun AccountQuickSheet(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(UnbSpacing.md),
                         ) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = colors.ink,
+                            SkeletonInlineBar(
+                                width = 22.dp,
+                                height = 8.dp,
+                                color = colors.muted,
                             )
                             Column {
                                 Text(

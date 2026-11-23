@@ -6,7 +6,9 @@ import com.unbpocket.app.ui.common.CoreErrorMapper
 import com.unbpocket.app.ui.common.UiErrorBanner
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.auth.CredentialsInput
+import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
+import com.unbpocket.core.model.common.PreloadProgress
 import com.unbpocket.core.model.contract.UnbPocketCore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -25,6 +27,7 @@ data class AuthUiState(
     val isSubmittingLogin: Boolean = false,
     val isSyncingAll: Boolean = false,
     val isLoggingOut: Boolean = false,
+    val preloadProgress: PreloadProgress = PreloadProgress(),
     val loginError: UiErrorBanner? = null,
     val syncError: UiErrorBanner? = null,
     val syncStatusMessage: String? = null,
@@ -51,8 +54,9 @@ class AuthViewModel(
 
     val uiState: StateFlow<AuthUiState> = combine(
         core.auth.authState,
+        core.preloadProgress,
         formState,
-    ) { auth, form ->
+    ) { auth, preload, form ->
         AuthUiState(
             authState = auth,
             hasSavedCredentials = form.hasSavedCredentials,
@@ -62,6 +66,7 @@ class AuthViewModel(
             isSubmittingLogin = form.isSubmittingLogin,
             isSyncingAll = form.isSyncingAll,
             isLoggingOut = form.isLoggingOut,
+            preloadProgress = preload,
             loginError = form.loginError,
             syncError = form.syncError,
             syncStatusMessage = form.syncStatusMessage,
@@ -69,7 +74,10 @@ class AuthViewModel(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = AuthUiState(authState = core.auth.authState.value),
+        initialValue = AuthUiState(
+            authState = core.auth.authState.value,
+            preloadProgress = core.preloadProgress.value,
+        ),
     )
 
     init {
@@ -81,26 +89,29 @@ class AuthViewModel(
             val saved = core.auth.hasSavedCredentials()
             formState.update { it.copy(hasSavedCredentials = saved) }
             if (!saved) return@launch
-            if (core.auth.authState.value is AuthState.Authenticated) return@launch
 
-            formState.update { it.copy(isBootstrapping = true, syncError = null) }
-            when (val sessionResult = core.auth.ensureValidSession()) {
+            when (val result = core.silentRefreshAll(includeTurmaDetails = true)) {
                 is CoreResult.Success -> {
                     formState.update {
                         it.copy(
                             isBootstrapping = false,
                             hasSavedCredentials = true,
+                            syncError = null,
                         )
                     }
-                    syncAllInternal(silentNetworkFailure = true)
                 }
 
                 is CoreResult.Failure -> {
+                    val stillHasSaved = core.auth.hasSavedCredentials()
                     formState.update {
                         it.copy(
                             isBootstrapping = false,
-                            hasSavedCredentials = core.auth.hasSavedCredentials(),
-                            syncError = CoreErrorMapper.toUiError(sessionResult.error),
+                            hasSavedCredentials = stillHasSaved,
+                            syncError = if (result.error is CoreError.InvalidCredentials) {
+                                CoreErrorMapper.toUiError(result.error)
+                            } else {
+                                null
+                            },
                         )
                     }
                 }
@@ -135,20 +146,63 @@ class AuthViewModel(
         }
 
         viewModelScope.launch {
-            formState.update { it.copy(isSubmittingLogin = true, loginError = null) }
+            formState.update {
+                it.copy(
+                    isSubmittingLogin = true,
+                    loginError = null,
+                    syncStatusMessage = "Conectando ao SIGAA...",
+                )
+            }
             when (val result = core.auth.login(CredentialsInput(matricula = matricula, password = senha))) {
                 is CoreResult.Success -> {
                     formState.update {
                         it.copy(
-                            isSubmittingLogin = false,
                             hasSavedCredentials = true,
                             senhaInput = "",
                             loginError = null,
                             syncError = null,
+                            syncStatusMessage = "Carregando turmas e dados acadêmicos...",
                         )
                     }
-                    onSuccess()
-                    syncAllInternal(silentNetworkFailure = false)
+                    when (val essentialResult = core.syncPortalHome(includeSaldoRu = true)) {
+                        is CoreResult.Success -> {
+                            val summary = essentialResult.value
+                            core.startBackgroundPreload(includeTurmaDetails = true)
+                            formState.update {
+                                it.copy(
+                                    isSubmittingLogin = false,
+                                    syncError = null,
+                                    syncStatusMessage = if (summary.turmasCount == 0) {
+                                        "Dados acadêmicos carregados."
+                                    } else {
+                                        "Sincronizado (${summary.turmasCount} turmas)."
+                                    },
+                                )
+                            }
+                            onSuccess()
+                        }
+
+                        is CoreResult.Failure -> {
+                            if (essentialResult.error is CoreError.InvalidCredentials) {
+                                formState.update {
+                                    it.copy(
+                                        isSubmittingLogin = false,
+                                        loginError = CoreErrorMapper.toUiError(essentialResult.error),
+                                        syncStatusMessage = null,
+                                    )
+                                }
+                            } else {
+                                formState.update {
+                                    it.copy(
+                                        isSubmittingLogin = false,
+                                        syncError = CoreErrorMapper.toUiError(essentialResult.error),
+                                        syncStatusMessage = null,
+                                    )
+                                }
+                                onSuccess()
+                            }
+                        }
+                    }
                 }
 
                 is CoreResult.Failure -> {
@@ -156,6 +210,7 @@ class AuthViewModel(
                         it.copy(
                             isSubmittingLogin = false,
                             loginError = CoreErrorMapper.toUiError(result.error),
+                            syncStatusMessage = null,
                         )
                     }
                 }
@@ -175,6 +230,7 @@ class AuthViewModel(
         when (val result = core.syncPortalHome(includeSaldoRu = true)) {
             is CoreResult.Success -> {
                 val summary = result.value
+                core.startBackgroundPreload(includeTurmaDetails = true)
                 formState.update {
                     it.copy(
                         isSyncingAll = false,

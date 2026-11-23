@@ -31,11 +31,8 @@ import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.EventAvailable
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -59,9 +56,12 @@ import com.unbpocket.app.ui.components.InfoCalloutRow
 import com.unbpocket.app.ui.components.InnerTile
 import com.unbpocket.app.ui.components.OfflineOriginStrip
 import com.unbpocket.app.ui.components.SegmentedPillBar
+import com.unbpocket.app.ui.components.SkeletonBox
 import com.unbpocket.app.ui.components.SkeletonCard
+import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
+import com.unbpocket.app.ui.components.UnbPullToRefreshBox
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
 import com.unbpocket.app.ui.viewmodel.TurmaDetailTab
@@ -76,7 +76,6 @@ import com.unbpocket.core.model.turmas.TarefaTurma
 import com.unbpocket.core.model.turmas.TopicoAulaAva
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TurmaVirtualScreen(
     uiState: TurmaVirtualUiState,
@@ -153,7 +152,7 @@ fun TurmaVirtualScreen(
             },
         )
 
-        PullToRefreshBox(
+        UnbPullToRefreshBox(
             isRefreshing = uiState.isRefreshingDetail,
             onRefresh = onRefreshTab,
             modifier = Modifier.fillMaxSize(),
@@ -287,10 +286,9 @@ fun TurmaVirtualScreen(
                                                 color = colors.muted,
                                             )
                                             if (isLoadingThis) {
-                                                CircularProgressIndicator(
-                                                    modifier = Modifier.size(16.dp),
-                                                    strokeWidth = 2.dp,
-                                                    color = colors.ink,
+                                                SkeletonInlineBar(
+                                                    width = 22.dp,
+                                                    height = 6.dp,
                                                 )
                                             }
                                         }
@@ -302,19 +300,41 @@ fun TurmaVirtualScreen(
                                         )
 
                                         AnimatedVisibility(
-                                            visible = expanded && fullNoticia != null,
+                                            visible = expanded && (fullNoticia != null || isLoadingThis),
                                             enter = expandVertically() + fadeIn(),
                                             exit = shrinkVertically() + fadeOut(),
                                         ) {
-                                            fullNoticia?.let { full ->
-                                                Column(modifier = Modifier.padding(top = UnbSpacing.md)) {
-                                                    HairlineDivider()
-                                                    Spacer(modifier = Modifier.height(UnbSpacing.md))
-                                                    NoticiaBodyContent(
-                                                        noticia = full,
-                                                        downloadingItemId = uiState.downloadingItemId,
-                                                        onDownloadAnexo = onDownloadAnexo,
-                                                    )
+                                            when {
+                                                fullNoticia != null -> {
+                                                    Column(modifier = Modifier.padding(top = UnbSpacing.md)) {
+                                                        HairlineDivider()
+                                                        Spacer(modifier = Modifier.height(UnbSpacing.md))
+                                                        NoticiaBodyContent(
+                                                            noticia = fullNoticia,
+                                                            downloadingItemId = uiState.downloadingItemId,
+                                                            onDownloadAnexo = onDownloadAnexo,
+                                                        )
+                                                    }
+                                                }
+
+                                                isLoadingThis -> {
+                                                    Column(
+                                                        modifier = Modifier.padding(top = UnbSpacing.md),
+                                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                                    ) {
+                                                        HairlineDivider()
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        SkeletonBox(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth(0.92f)
+                                                                .height(12.dp),
+                                                        )
+                                                        SkeletonBox(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth(0.75f)
+                                                                .height(12.dp),
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -602,10 +622,9 @@ private fun MaterialRow(
             }
             Spacer(modifier = Modifier.width(8.dp))
             if (isDownloading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    strokeWidth = 2.dp,
-                    color = colors.ink,
+                SkeletonInlineBar(
+                    width = 20.dp,
+                    height = 6.dp,
                 )
             } else {
                 Icon(
@@ -728,10 +747,9 @@ private fun AnexoRow(
             )
             Spacer(modifier = Modifier.width(8.dp))
             if (isDownloading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(16.dp),
-                    strokeWidth = 2.dp,
-                    color = colors.ink,
+                SkeletonInlineBar(
+                    width = 18.dp,
+                    height = 6.dp,
                 )
             } else {
                 Icon(

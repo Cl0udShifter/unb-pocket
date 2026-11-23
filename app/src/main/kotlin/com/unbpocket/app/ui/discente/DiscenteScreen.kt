@@ -40,14 +40,11 @@ import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -79,9 +76,12 @@ import com.unbpocket.app.ui.components.HeaderActionIconButton
 import com.unbpocket.app.ui.components.InnerTile
 import com.unbpocket.app.ui.components.LocalBitmapImage
 import com.unbpocket.app.ui.components.OfflineOriginStrip
+import com.unbpocket.app.ui.components.SkeletonBox
 import com.unbpocket.app.ui.components.SkeletonCard
+import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
+import com.unbpocket.app.ui.components.UnbPullToRefreshBox
 import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
@@ -93,7 +93,6 @@ import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DiscenteScreen(
     uiState: DiscenteUiState,
@@ -220,7 +219,7 @@ fun DiscenteScreen(
             return
         }
 
-        PullToRefreshBox(
+        UnbPullToRefreshBox(
             isRefreshing = uiState.isRefreshingProfile || authUiState.isSyncingAll,
             onRefresh = onRefreshProfile,
             modifier = Modifier.fillMaxSize(),
@@ -353,9 +352,9 @@ fun DiscenteScreen(
                                     .defaultMinSize(minHeight = 48.dp),
                             ) {
                                 if (authUiState.isSyncingAll) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(16.dp),
-                                        strokeWidth = 2.dp,
+                                    SkeletonInlineBar(
+                                        width = 20.dp,
+                                        height = 6.dp,
                                         color = colors.ink,
                                     )
                                 } else {
@@ -1001,15 +1000,11 @@ private fun RuQrBackFace(
         ) {
             when {
                 carteirinha == null && isLoading -> {
-                    Box(
+                    SkeletonBox(
                         modifier = Modifier.size(220.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            color = colors.qrInk,
-                            strokeWidth = 2.dp,
-                        )
-                    }
+                        shape = UnbShapes.inner,
+                        color = colors.qrInk.copy(alpha = 0.14f),
+                    )
                 }
 
                 carteirinha == null -> {

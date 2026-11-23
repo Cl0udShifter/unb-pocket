@@ -17,9 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,13 +33,13 @@ import com.unbpocket.app.ui.components.OfflineOriginStrip
 import com.unbpocket.app.ui.components.SkeletonCard
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
+import com.unbpocket.app.ui.components.UnbPullToRefreshBox
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
 import com.unbpocket.app.ui.viewmodel.DiscenteUiState
 import com.unbpocket.core.model.discente.BoletimSemestre
 import com.unbpocket.core.model.discente.NotaDisciplinaBoletim
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun BoletimScreen(
     uiState: DiscenteUiState,
@@ -82,7 +80,7 @@ fun BoletimScreen(
             },
         )
 
-        PullToRefreshBox(
+        UnbPullToRefreshBox(
             isRefreshing = uiState.isRefreshingBoletim,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),

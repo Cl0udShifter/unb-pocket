@@ -6,6 +6,8 @@ import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.DataOrigin
 import com.unbpocket.core.model.common.PortalHomeSyncSummary
+import com.unbpocket.core.model.common.PreloadPhase
+import com.unbpocket.core.model.common.PreloadProgress
 import com.unbpocket.core.model.common.SyncedData
 import com.unbpocket.core.model.contract.AuthRepository
 import com.unbpocket.core.model.contract.DiscenteRepository
@@ -52,16 +54,52 @@ class FakeUnbPocketCore : UnbPocketCore {
             turmasCount = 2,
             atualizacoesCount = 1,
             saldoRuAtualizado = true,
+            anyDataChanged = true,
         ),
     )
+    var silentRefreshResult: CoreResult<PortalHomeSyncSummary>? = null
+    var startBackgroundPreloadCalls: Int = 0
+    var syncPortalHomeCalls: Int = 0
+    var silentRefreshCalls: Int = 0
+
+    private val _preloadProgress = MutableStateFlow(PreloadProgress())
+    override val preloadProgress: StateFlow<PreloadProgress> = _preloadProgress.asStateFlow()
 
     override val auth: AuthRepository = authFake
     override val ru: RuRepository = ruFake
     override val turmas: TurmasRepository = turmasFake
     override val discente: DiscenteRepository = discenteFake
 
-    override suspend fun syncPortalHome(includeSaldoRu: Boolean): CoreResult<PortalHomeSyncSummary> =
-        syncPortalResult
+    override suspend fun syncPortalHome(includeSaldoRu: Boolean): CoreResult<PortalHomeSyncSummary> {
+        syncPortalHomeCalls++
+        return syncPortalResult
+    }
+
+    override fun startBackgroundPreload(includeTurmaDetails: Boolean) {
+        startBackgroundPreloadCalls++
+        _preloadProgress.value = PreloadProgress(
+            phase = PreloadPhase.COMPLETED,
+            completedSteps = 1,
+            totalSteps = 1,
+        )
+    }
+
+    override suspend fun silentRefreshAll(includeTurmaDetails: Boolean): CoreResult<PortalHomeSyncSummary> {
+        silentRefreshCalls++
+        when (val session = authFake.ensureValidSession()) {
+            is CoreResult.Failure -> return session
+            is CoreResult.Success -> Unit
+        }
+        val result = silentRefreshResult ?: syncPortalResult
+        if (result is CoreResult.Success) {
+            startBackgroundPreload(includeTurmaDetails = includeTurmaDetails)
+        }
+        return result
+    }
+
+    fun emitPreloadProgress(progress: PreloadProgress) {
+        _preloadProgress.value = progress
+    }
 }
 
 class FakeAuthRepository : AuthRepository {
@@ -190,6 +228,7 @@ class FakeTurmasRepository : TurmasRepository {
     var refreshDetalheCalls = 0
     var refreshFrequenciaCalls = 0
     var refreshNotasCalls = 0
+    var nextRefreshDetalheResult: CoreResult<TurmaDetalheAva>? = null
     var downloadedMaterialResult: CoreResult<ArquivoBaixado> = CoreResult.Success(
         ArquivoBaixado("slides.pdf", "application/pdf", "/tmp/slides.pdf", 120L),
     )
@@ -202,6 +241,7 @@ class FakeTurmasRepository : TurmasRepository {
     override fun observeTurmaDetalhe(frontEndIdTurma: String): Flow<SyncedData<TurmaDetalheAva>?> = detalhe
     override suspend fun refreshTurmaDetalhe(frontEndIdTurma: String): CoreResult<TurmaDetalheAva> {
         refreshDetalheCalls++
+        nextRefreshDetalheResult?.let { return it }
         return detalhe.value?.let { CoreResult.Success(it.value) }
             ?: CoreResult.Failure(CoreError.NetworkUnavailable)
     }

@@ -5,6 +5,7 @@ import com.unbpocket.core.model.auth.CredentialsInput
 import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.DataOrigin
+import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.contract.UnbPocketCore
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
 import com.unbpocket.core.model.ru.Alergenico
@@ -21,8 +22,12 @@ import com.unbpocket.core.parser.PdfLocatedImage
 import com.unbpocket.core.parser.PdfMenuPageData
 import com.unbpocket.core.parser.PdfTextSpan
 import com.unbpocket.core.parser.RgbImageBuffer
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -392,6 +397,172 @@ class UnbPocketCoreIntegrationTest {
         val updatedPrefs = core.ru.observePreferencias().first()
         assertEquals(CampusRu.GAMA, updatedPrefs.campusSelecionado)
         assertTrue(updatedPrefs.ocultarPratosComAlergenicos)
+    }
+
+    @Test
+    fun loginReusesFreshPortalHtmlAndCompletesPhase2BackgroundPreload() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        val verPortalHits = AtomicInteger(0)
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/verPortalDiscente.do")
+
+                    path.startsWith("/sigaa/verPortalDiscente.do") -> {
+                        verPortalHits.incrementAndGet()
+                        latin1Response(discenteHomeHtml())
+                    }
+
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formExibirExtrato") -> latin1Response(extratoRuHtml())
+                            body.contains("atestadoMatriculaUnb") -> latin1Response(atestadoHtml())
+                            body.contains("frontEndIdTurma") -> latin1Response(avaHomeHtml())
+                            body.contains("relatorioNotasAluno") -> latin1Response(boletimHtml())
+                            body.contains("emitiCarteiraEstudantilUnb") -> pdfResponse("%PDF-1.4 carteirinha")
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+
+                    path.startsWith("/sigaa/ava/index.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formMenu%3Afreq") -> latin1Response(frequenciaHtml())
+                            body.contains("formMenu%3Anotas") -> latin1Response(notasIndisponiveisHtml())
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        pdfExtractor.carteirinhaResult = CoreResult.Success(buildSyntheticCarteirinhaInput())
+
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        assertEquals(1, verPortalHits.get())
+
+        val essential = core.syncPortalHome(includeSaldoRu = true)
+        assertTrue(essential is CoreResult.Success)
+        // Reutiliza o HTML do login na Fase 1 (apenas +1 hit para ViewState fresco do Atestado)
+        assertEquals(2, verPortalHits.get())
+
+        core.startBackgroundPreload(includeTurmaDetails = true)
+        val completed = withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                core.preloadProgress.first { it.phase == PreloadPhase.COMPLETED && it.totalSteps > 0 }
+            }
+        }
+        assertEquals(PreloadPhase.COMPLETED, completed.phase)
+        assertEquals(7, completed.totalSteps)
+        assertNotNull(core.discente.observeCarteirinha().first())
+        assertNotNull(core.discente.observeBoletimGeral().first())
+        assertNotNull(core.turmas.observeTurmaDetalhe(frontEndId).first())
+        assertNotNull(core.turmas.observeFrequencia(frontEndId).first())
+        assertNotNull(core.turmas.observeNotasParciais(frontEndId).first())
+
+        assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
+        assertEquals(PreloadPhase.IDLE, core.preloadProgress.value.phase)
+    }
+
+    @Test
+    fun silentRefreshAllSkipsRedundantWritesUpdatesOnDiffAndPreservesCacheOnError() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        var currentExtratoSaldo = "R$ 8,65"
+        var failPortal = false
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/verPortalDiscente.do")
+
+                    path.startsWith("/sigaa/verPortalDiscente.do") ->
+                        if (failPortal) MockResponse().setResponseCode(503) else latin1Response(discenteHomeHtml())
+
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        if (failPortal) {
+                            MockResponse().setResponseCode(503)
+                        } else {
+                            when {
+                                body.contains("formExibirExtrato") -> latin1Response(
+                                    extratoRuHtml().replace("R$ 8,65", currentExtratoSaldo),
+                                )
+                                body.contains("atestadoMatriculaUnb") -> latin1Response(atestadoHtml())
+                                body.contains("relatorioNotasAluno") -> latin1Response(boletimHtml())
+                                body.contains("emitiCarteiraEstudantilUnb") -> pdfResponse("%PDF-1.4 carteirinha")
+                                else -> MockResponse().setResponseCode(400)
+                            }
+                        }
+                    }
+
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        pdfExtractor.carteirinhaResult = CoreResult.Success(buildSyntheticCarteirinhaInput())
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        assertTrue(core.silentRefreshAll(includeTurmaDetails = false) is CoreResult.Success)
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                core.preloadProgress.first { it.phase == PreloadPhase.COMPLETED && it.totalSteps == 2 }
+            }
+        }
+
+        val upsertsAfterInitialLoad = dao.upsertCount
+
+        // Payload identico: nao dispara novas gravacoes no Room e sinaliza anyDataChanged = false
+        val sameRes = core.silentRefreshAll(includeTurmaDetails = false)
+        assertTrue(sameRes is CoreResult.Success)
+        assertFalse((sameRes as CoreResult.Success).value.anyDataChanged)
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                core.preloadProgress.first { it.phase == PreloadPhase.COMPLETED && it.totalSteps == 2 }
+            }
+        }
+        assertEquals(upsertsAfterInitialLoad, dao.upsertCount)
+        assertEquals(865L, core.ru.observeSaldoExtrato().first()?.value?.saldoAtualCentavos)
+
+        // Saldo alterado no SIGAA: detecta diff, persiste e atualiza fluxo reativo
+        currentExtratoSaldo = "R$ 15,20"
+        val changedRes = core.silentRefreshAll(includeTurmaDetails = false)
+        assertTrue(changedRes is CoreResult.Success)
+        assertTrue((changedRes as CoreResult.Success).value.anyDataChanged)
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                core.preloadProgress.first { it.phase == PreloadPhase.COMPLETED && it.totalSteps == 2 }
+            }
+        }
+        assertTrue(dao.upsertCount > upsertsAfterInitialLoad)
+        assertEquals(1520L, core.ru.observeSaldoExtrato().first()?.value?.saldoAtualCentavos)
+
+        // Erro HTTP na sincronizacao silenciosa preserva integralmente o cache anterior
+        failPortal = true
+        val offlineRes = core.silentRefreshAll(includeTurmaDetails = false)
+        assertTrue(offlineRes is CoreResult.Failure)
+        assertEquals(1520L, core.ru.observeSaldoExtrato().first()?.value?.saldoAtualCentavos)
+        assertNotNull(core.discente.observeDiscenteResumo().first())
     }
 
     private fun redirect(location: String) =

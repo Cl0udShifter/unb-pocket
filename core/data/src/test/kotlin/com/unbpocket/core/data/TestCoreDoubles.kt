@@ -23,6 +23,8 @@ import java.nio.file.Files
 
 class InMemorySnapshotDao : SnapshotDao {
     private val rows = MutableStateFlow<Map<String, SnapshotEntity>>(emptyMap())
+    @Volatile
+    var upsertCount: Int = 0
 
     override fun observeByKey(cacheKey: String): Flow<SnapshotEntity?> =
         rows.map { it[cacheKey] }
@@ -31,6 +33,7 @@ class InMemorySnapshotDao : SnapshotDao {
         rows.value[cacheKey]
 
     override suspend fun upsert(entity: SnapshotEntity) {
+        upsertCount++
         rows.value = rows.value + (entity.cacheKey to entity)
     }
 

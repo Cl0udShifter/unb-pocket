@@ -184,13 +184,16 @@ class RuRepositoryImpl(
                 is CoreResult.Failure -> return@withAuthenticatedJsf home
                 is CoreResult.Success -> home.value
             }
-            refreshSaldoExtratoFromHomeHtml(nav, homeHtml)
+            when (val res = refreshSaldoExtratoWithDiff(nav, homeHtml)) {
+                is CoreResult.Failure -> res
+                is CoreResult.Success -> CoreResult.Success(res.value.first)
+            }
         }
 
-    internal suspend fun refreshSaldoExtratoFromHomeHtml(
+    internal suspend fun refreshSaldoExtratoWithDiff(
         nav: com.unbpocket.core.data.session.SigaaNavigator,
         homeHtml: String,
-    ): CoreResult<SaldoExtratoRu> {
+    ): CoreResult<Pair<SaldoExtratoRu, Boolean>> {
         val extratoParams = CasAndJsfParser.extractExtratoRuFormParams(homeHtml)
             ?: return CoreResult.Failure(
                 CoreError.UnavailableForProfile(
@@ -206,18 +209,21 @@ class RuRepositoryImpl(
 
         val precos = getLatestPricesOrDefault()
         val parsed = DiscentePortalParser.parseExtratoRu(payload.decodeSigaaIso88591(), precos)
-        if (parsed is CoreResult.Success) {
-            cacheStore.put(
-                cacheKey = SnapshotCacheStore.Keys.RU_SALDO,
-                domain = SnapshotCacheStore.Domains.RU,
-                origin = DataOrigin.REMOTE,
-                syncedAtEpochMillis = nav.nowMillis(),
-                value = parsed.value,
-                serializer = SaldoExtratoRuDto.serializer(),
-                toDto = CacheMappers::toDto,
-            )
+        return when (parsed) {
+            is CoreResult.Failure -> parsed
+            is CoreResult.Success -> {
+                val changed = cacheStore.put(
+                    cacheKey = SnapshotCacheStore.Keys.RU_SALDO,
+                    domain = SnapshotCacheStore.Domains.RU,
+                    origin = DataOrigin.REMOTE,
+                    syncedAtEpochMillis = nav.nowMillis(),
+                    value = parsed.value,
+                    serializer = SaldoExtratoRuDto.serializer(),
+                    toDto = CacheMappers::toDto,
+                )
+                CoreResult.Success(parsed.value to changed)
+            }
         }
-        return parsed
     }
 
     override fun observeTabelaPrecos(): Flow<SyncedData<TabelaPrecosRu>?> =

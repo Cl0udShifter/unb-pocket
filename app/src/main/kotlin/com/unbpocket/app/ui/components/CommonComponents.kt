@@ -17,6 +17,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -45,7 +46,7 @@ import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -55,6 +56,8 @@ import androidx.compose.material3.NavigationRailItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -63,7 +66,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.Role
@@ -192,9 +197,9 @@ fun HeaderActionIconButton(
             modifier = Modifier.size(48.dp),
         ) {
             if (isLoading) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(20.dp),
-                    strokeWidth = 2.dp,
+                SkeletonInlineBar(
+                    width = 20.dp,
+                    height = 6.dp,
                     color = colors.ink,
                 )
             } else {
@@ -630,14 +635,10 @@ fun EmptyStateCard(
 }
 
 @Composable
-fun SkeletonCard(
-    modifier: Modifier = Modifier,
-    lineCount: Int = 4,
-) {
-    val colors = UnbTheme.colors
+private fun rememberSkeletonAlpha(): Float {
     val transition = rememberInfiniteTransition(label = "skeletonPulse")
     val alpha by transition.animateFloat(
-        initialValue = 0.45f,
+        initialValue = 0.42f,
         targetValue = 0.85f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 850),
@@ -645,24 +646,120 @@ fun SkeletonCard(
         ),
         label = "skeletonAlpha",
     )
+    return alpha
+}
 
+@Composable
+fun SkeletonBox(
+    modifier: Modifier = Modifier,
+    shape: Shape = UnbShapes.inner,
+    color: Color = UnbTheme.colors.surfaceRaised,
+) {
+    val alpha = rememberSkeletonAlpha()
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(color.copy(alpha = color.alpha * alpha)),
+    )
+}
+
+@Composable
+fun SkeletonInlineBar(
+    modifier: Modifier = Modifier,
+    width: Dp = 44.dp,
+    height: Dp = 8.dp,
+    color: Color = UnbTheme.colors.surfaceRaised,
+) {
+    SkeletonBox(
+        modifier = modifier
+            .width(width)
+            .height(height),
+        shape = CircleShape,
+        color = color,
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun UnbPullToRefreshBox(
+    isRefreshing: Boolean,
+    onRefresh: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable BoxScope.() -> Unit,
+) {
+    val colors = UnbTheme.colors
+    val state = rememberPullToRefreshState()
+    val pullFraction = state.distanceFraction.coerceIn(0f, 1.35f)
+    val showIndicator = isRefreshing || pullFraction > 0.04f
+
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = onRefresh,
+        modifier = modifier,
+        state = state,
+        indicator = {
+            if (showIndicator) {
+                val visualFraction = if (isRefreshing) 1f else pullFraction.coerceIn(0f, 1f)
+                Surface(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 10.dp)
+                        .graphicsLayer {
+                            alpha = visualFraction
+                            translationY = if (isRefreshing) 0f else (visualFraction - 1f) * 18f
+                        },
+                    shape = CircleShape,
+                    color = colors.surface,
+                    border = BorderStroke(1.dp, colors.border),
+                    shadowElevation = 0.dp,
+                ) {
+                    Box(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (isRefreshing) {
+                            SkeletonInlineBar(
+                                width = 38.dp,
+                                height = 6.dp,
+                                color = colors.ink,
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .width((16 + 22 * visualFraction).dp)
+                                    .height(6.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.muted.copy(alpha = 0.55f + 0.3f * visualFraction)),
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        content = content,
+    )
+}
+
+@Composable
+fun SkeletonCard(
+    modifier: Modifier = Modifier,
+    lineCount: Int = 4,
+) {
     EditorialCard(modifier = modifier) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Box(
+            SkeletonBox(
                 modifier = Modifier
                     .fillMaxWidth(0.45f)
-                    .height(12.dp)
-                    .clip(RoundedCornerShape(4.dp))
-                    .background(colors.surfaceRaised.copy(alpha = alpha)),
+                    .height(12.dp),
+                shape = RoundedCornerShape(4.dp),
             )
             repeat(lineCount) { idx ->
                 val fraction = if (idx % 2 == 0) 0.92f else 0.72f
-                Box(
+                SkeletonBox(
                     modifier = Modifier
                         .fillMaxWidth(fraction)
-                        .height(18.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(colors.surfaceRaised.copy(alpha = alpha)),
+                        .height(18.dp),
+                    shape = RoundedCornerShape(6.dp),
                 )
             }
         }
@@ -863,20 +960,12 @@ fun RemoteBitmapImage(
     val (loading, bitmap) = state
     when {
         loading -> {
-            Box(
+            SkeletonBox(
                 modifier = modifier
                     .fillMaxWidth()
-                    .height(minHeight)
-                    .clip(UnbShapes.inner)
-                    .background(UnbTheme.colors.surfaceRaised),
-                contentAlignment = Alignment.Center,
-            ) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
-                    strokeWidth = 2.dp,
-                    color = UnbTheme.colors.ink,
-                )
-            }
+                    .height(minHeight),
+                shape = UnbShapes.inner,
+            )
         }
 
         bitmap != null -> {

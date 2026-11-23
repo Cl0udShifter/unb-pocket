@@ -45,7 +45,6 @@ import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
@@ -57,7 +56,6 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -95,8 +93,10 @@ import com.unbpocket.app.ui.components.OfflineOriginStrip
 import com.unbpocket.app.ui.components.RemoteBitmapImage
 import com.unbpocket.app.ui.components.SegmentedPillBar
 import com.unbpocket.app.ui.components.SkeletonCard
+import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
+import com.unbpocket.app.ui.components.UnbPullToRefreshBox
 import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
@@ -229,7 +229,7 @@ fun RuScreen(
             }
         }
 
-        PullToRefreshBox(
+        UnbPullToRefreshBox(
             isRefreshing = uiState.isRefreshingMenu,
             onRefresh = onRefreshMenu,
             modifier = Modifier.fillMaxSize(),
@@ -1098,10 +1098,9 @@ private fun NoticesAndPricesBottomSheet(
                     color = colors.ink,
                 )
                 if (isLoading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = colors.ink,
+                    SkeletonInlineBar(
+                        width = 24.dp,
+                        height = 7.dp,
                     )
                 }
             }
@@ -1127,7 +1126,11 @@ private fun NoticesAndPricesBottomSheet(
                 verticalArrangement = Arrangement.spacedBy(UnbSpacing.sm),
             ) {
                 if (tabIndex == 0) {
-                    if (notices.isEmpty()) {
+                    if (notices.isEmpty() && isLoading) {
+                        items(count = 3, key = { "ru_notice_skel_$it" }) {
+                            SkeletonCard(lineCount = 3)
+                        }
+                    } else if (notices.isEmpty()) {
                         item(key = "notices_empty") {
                             EmptyStateCard(
                                 icon = Icons.Rounded.NotificationsNone,
@@ -1177,7 +1180,11 @@ private fun NoticesAndPricesBottomSheet(
                         }
                     }
                 } else {
-                    if (tabelaPrecos == null) {
+                    if (tabelaPrecos == null && isLoading) {
+                        item(key = "prices_skel") {
+                            SkeletonCard(lineCount = 4)
+                        }
+                    } else if (tabelaPrecos == null) {
                         item(key = "prices_empty") {
                             EmptyStateCard(
                                 icon = Icons.Rounded.Restaurant,

@@ -4,6 +4,8 @@ import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.DataOrigin
+import com.unbpocket.core.model.common.PreloadPhase
+import com.unbpocket.core.model.common.PreloadProgress
 import com.unbpocket.core.model.common.SyncedData
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
 import com.unbpocket.core.model.ru.Alergenico
@@ -13,6 +15,7 @@ import com.unbpocket.core.model.ru.CardapioParserStatus
 import com.unbpocket.core.model.ru.CardapioSemanalRu
 import com.unbpocket.core.model.ru.ItemCardapioRu
 import com.unbpocket.core.model.ru.TipoRefeicao
+import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.collect
@@ -198,6 +201,89 @@ class ViewModelsTest {
         assertNotNull(vm.uiState.value.lastEmittedDocumentoEvent)
         vm.consumeEmittedDocumento()
         assertNull(vm.uiState.value.lastEmittedDocumentoEvent)
+
+        collector.cancel()
+    }
+
+    @Test
+    fun `AuthViewModel executes phase 1 before login callback starts background preload and silences startup network errors`() = runTest {
+        val core = FakeUnbPocketCore()
+        val vm = AuthViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.uiState.collect() }
+
+        var syncCountAtCallback = -1
+        var preloadCountAtCallback = -1
+        vm.onMatriculaChange("231012345")
+        vm.onSenhaChange("correct")
+        vm.submitLogin {
+            syncCountAtCallback = core.syncPortalHomeCalls
+            preloadCountAtCallback = core.startBackgroundPreloadCalls
+        }
+        advanceUntilIdle()
+
+        assertEquals(1, syncCountAtCallback)
+        assertEquals(1, preloadCountAtCallback)
+        assertEquals(PreloadPhase.COMPLETED, vm.uiState.value.preloadProgress.phase)
+
+        collector.cancel()
+
+        // Startup silencioso com erro de rede nao exibe erro nem skeleton/spinner de boot
+        val offlineCore = FakeUnbPocketCore().apply {
+            authFake.savedCredentials = true
+            silentRefreshResult = CoreResult.Failure(CoreError.NetworkUnavailable)
+        }
+        val offlineVm = AuthViewModel(offlineCore)
+        val offlineCollector = backgroundScope.launch(testDispatcher) { offlineVm.uiState.collect() }
+        advanceUntilIdle()
+
+        assertEquals(1, offlineCore.silentRefreshCalls)
+        assertFalse(offlineVm.uiState.value.isBootstrapping)
+        assertFalse(offlineVm.uiState.value.isSyncingAll)
+        assertNull(offlineVm.uiState.value.syncError)
+        offlineCollector.cancel()
+
+        // Startup com credencial invalida informa necessidade de novo login
+        val badCredsCore = FakeUnbPocketCore().apply {
+            authFake.savedCredentials = true
+            silentRefreshResult = CoreResult.Failure(CoreError.InvalidCredentials)
+        }
+        val badCredsVm = AuthViewModel(badCredsCore)
+        val badCredsCollector = backgroundScope.launch(testDispatcher) { badCredsVm.uiState.collect() }
+        advanceUntilIdle()
+
+        assertTrue(badCredsVm.uiState.value.syncError?.requiresLogin == true)
+        badCredsCollector.cancel()
+    }
+
+    @Test
+    fun `TurmasViewModel silently refreshes preloaded detail without skeleton or error disruption`() = runTest {
+        val core = FakeUnbPocketCore()
+        val cachedDetail = TurmaDetalheAva(
+            idTurma = "10",
+            frontEndIdTurma = "fe_10",
+            codigoDisciplina = "ENE0064",
+            nomeDisciplina = "REDES SEM FIO",
+            periodoTurmaTexto = "T01",
+            aulasMinistradas = 10,
+            aulasTotal = 30,
+            percentualAndamento = 33,
+            ultimaNoticia = null,
+            historicoNoticiasResumo = emptyList(),
+            topicosAula = emptyList(),
+        )
+        core.turmasFake.detalhe.value = SyncedData(cachedDetail, DataOrigin.CACHE, 500L)
+        core.turmasFake.nextRefreshDetalheResult = CoreResult.Failure(CoreError.NetworkUnavailable)
+
+        val vm = TurmasViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.detailUiState.collect() }
+
+        vm.openTurma("fe_10")
+        advanceUntilIdle()
+
+        assertEquals(1, core.turmasFake.refreshDetalheCalls)
+        assertFalse(vm.detailUiState.value.isRefreshingDetail)
+        assertNull(vm.detailUiState.value.detailError)
+        assertEquals("REDES SEM FIO", vm.detailUiState.value.detalhe?.value?.nomeDisciplina)
 
         collector.cancel()
     }

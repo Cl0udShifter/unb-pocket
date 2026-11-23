@@ -71,6 +71,10 @@ class SnapshotCacheStore(
         fromDto: (D) -> T,
     ): SyncedData<T>? = dao.getByKey(cacheKey)?.toSyncedData(serializer, fromDto)
 
+    /**
+     * Grava o snapshot apenas quando ha mudanca estrutural no payload serializado ou na origem.
+     * Retorna `true` se o registro foi inserido ou alterado, ou `false` se o cache ja era identico.
+     */
     suspend fun <T, D> put(
         cacheKey: String,
         domain: String,
@@ -79,8 +83,12 @@ class SnapshotCacheStore(
         value: T,
         serializer: KSerializer<D>,
         toDto: (T) -> D,
-    ) {
+    ): Boolean {
         val payload = json.encodeToString(serializer, toDto(value))
+        val existing = dao.getByKey(cacheKey)
+        if (existing != null && existing.payloadJson == payload && existing.origin == origin.name) {
+            return false
+        }
         dao.upsert(
             SnapshotEntity(
                 cacheKey = cacheKey,
@@ -90,6 +98,7 @@ class SnapshotCacheStore(
                 syncedAtEpochMillis = syncedAtEpochMillis,
             ),
         )
+        return true
     }
 
     suspend fun clearDomain(domain: String) {
