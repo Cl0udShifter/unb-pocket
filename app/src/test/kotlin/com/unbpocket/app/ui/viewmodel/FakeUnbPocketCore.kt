@@ -19,6 +19,7 @@ import com.unbpocket.core.model.discente.CarteirinhaEstudantil
 import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.discente.DocumentoOficialEmitido
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
+import com.unbpocket.core.model.notification.SigaaNotificacaoConfig
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
@@ -69,6 +70,9 @@ class FakeUnbPocketCore : UnbPocketCore {
     private val _preloadProgress = MutableStateFlow(PreloadProgress())
     override val preloadProgress: StateFlow<PreloadProgress> = _preloadProgress.asStateFlow()
 
+    val sigaaNotificacoesFlow = MutableStateFlow(SigaaNotificacaoConfig())
+    var autoEnableSigaaCalls: Int = 0
+
     override val auth: AuthRepository = authFake
     override val ru: RuRepository = ruFake
     override val turmas: TurmasRepository = turmasFake
@@ -103,6 +107,21 @@ class FakeUnbPocketCore : UnbPocketCore {
 
     fun emitPreloadProgress(progress: PreloadProgress) {
         _preloadProgress.value = progress
+    }
+
+    override fun observeSigaaNotificacoesConfig(): Flow<SigaaNotificacaoConfig> = sigaaNotificacoesFlow
+
+    override suspend fun setSigaaNotificacoesConfig(config: SigaaNotificacaoConfig): CoreResult<Unit> {
+        sigaaNotificacoesFlow.value = config
+        return CoreResult.Success(Unit)
+    }
+
+    override suspend fun autoEnableSigaaNotificacoesIfEligible(): CoreResult<Boolean> {
+        autoEnableSigaaCalls++
+        val current = sigaaNotificacoesFlow.value
+        if (current.userConfigured || current.habilitado) return CoreResult.Success(false)
+        sigaaNotificacoesFlow.value = current.copy(habilitado = true)
+        return CoreResult.Success(true)
     }
 }
 

@@ -8,10 +8,17 @@ import com.unbpocket.core.data.local.PdfExtractor
 import com.unbpocket.core.data.local.RuNotificationSchedulerPort
 import com.unbpocket.core.data.local.RuPreferencesStore
 import com.unbpocket.core.data.local.RuPrefsSource
+import com.unbpocket.core.data.local.SigaaNotifPrefsSource
+import com.unbpocket.core.data.local.SigaaNotificationPosterPort
+import com.unbpocket.core.data.local.SigaaNotificationPreferencesStore
+import com.unbpocket.core.data.local.SigaaNotificationSchedulerPort
 import com.unbpocket.core.data.local.SnapshotCacheStore
 import com.unbpocket.core.data.local.SnapshotDao
 import com.unbpocket.core.data.local.UnbPocketDatabase
 import com.unbpocket.core.data.notification.RuMealAlarmScheduler
+import com.unbpocket.core.data.notification.SigaaAlarmScheduler
+import com.unbpocket.core.data.notification.SigaaNotificationCoordinator
+import com.unbpocket.core.data.notification.SigaaNotificationPoster
 import com.unbpocket.core.data.pdf.AndroidPdfBoxExtractor
 import com.unbpocket.core.data.repository.DiscenteRepositoryImpl
 import com.unbpocket.core.data.repository.RuRepositoryImpl
@@ -19,6 +26,7 @@ import com.unbpocket.core.data.repository.TurmasRepositoryImpl
 import com.unbpocket.core.data.security.KeystoreCredentialVault
 import com.unbpocket.core.data.session.SigaaSessionCoordinator
 import com.unbpocket.core.data.worker.RuMenuAutoSyncScheduler
+import com.unbpocket.core.data.worker.SigaaBackgroundSyncScheduler
 import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.PortalHomeSyncSummary
@@ -29,6 +37,7 @@ import com.unbpocket.core.model.contract.DiscenteRepository
 import com.unbpocket.core.model.contract.RuRepository
 import com.unbpocket.core.model.contract.TurmasRepository
 import com.unbpocket.core.model.contract.UnbPocketCore
+import com.unbpocket.core.model.notification.SigaaNotificacaoConfig
 import com.unbpocket.core.network.JsfPriority
 import com.unbpocket.core.network.UnbHttpTransport
 import com.unbpocket.core.parser.DiscentePortalParser
@@ -39,9 +48,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /**
@@ -59,9 +70,39 @@ object UnbPocketCoreFactory {
                 sharedInstance = core
                 RuMenuAutoSyncScheduler.ensureScheduled(appContext)
                 RuMealAlarmScheduler.syncFromPreferencesAsync(appContext)
+                SigaaAlarmScheduler.syncScheduleAsync(appContext)
             }
         }
     }
+
+    internal suspend fun prepareSigaaLocalReminders(
+        context: Context,
+        postDueNow: Boolean,
+    ): Long? {
+        val core = create(context.applicationContext)
+        val config = core.observeSigaaNotificacoesConfig().first()
+        SigaaBackgroundSyncScheduler.syncSchedule(context.applicationContext, config)
+        return (core as? DefaultUnbPocketCore)?.prepareLocalReminders(postDueNow = postDueNow)
+    }
+
+    internal suspend fun runSigaaBackgroundNotificationSync(
+        context: Context,
+    ): CoreResult<PortalHomeSyncSummary> {
+        val core = create(context.applicationContext)
+        return (core as? DefaultUnbPocketCore)?.runBackgroundNotificationSync()
+            ?: CoreResult.Failure(CoreError.Unexpected("Instancia do Core nao suporta sync de notificacoes."))
+    }
+
+    internal suspend fun prepareLocalRemindersForCore(
+        core: UnbPocketCore,
+        postDueNow: Boolean,
+    ): Long? = (core as? DefaultUnbPocketCore)?.prepareLocalReminders(postDueNow = postDueNow)
+
+    internal suspend fun runBackgroundNotificationSyncForCore(
+        core: UnbPocketCore,
+    ): CoreResult<PortalHomeSyncSummary> =
+        (core as? DefaultUnbPocketCore)?.runBackgroundNotificationSync()
+            ?: CoreResult.Failure(CoreError.Unexpected("Instancia do Core nao suporta sync de notificacoes."))
 
     private fun buildCore(appContext: Context): UnbPocketCore {
         val database = UnbPocketDatabase.build(appContext)
@@ -73,6 +114,12 @@ object UnbPocketCoreFactory {
             fileStore = DownloadedFileStore(appContext),
             pdfExtractor = AndroidPdfBoxExtractor(appContext),
             notificationScheduler = RuMealAlarmScheduler(appContext),
+            sigaaNotifPrefs = SigaaNotificationPreferencesStore(appContext),
+            sigaaNotificationScheduler = SigaaNotificationSchedulerPort { config ->
+                SigaaAlarmScheduler.syncScheduleAsync(appContext, config)
+                SigaaBackgroundSyncScheduler.syncSchedule(appContext, config)
+            },
+            sigaaNotificationPoster = SigaaNotificationPoster(appContext),
         )
     }
 
@@ -86,16 +133,19 @@ object UnbPocketCoreFactory {
         clockMillis: () -> Long = { System.currentTimeMillis() },
         preloadDispatcher: CoroutineDispatcher = Dispatchers.IO,
         notificationScheduler: RuNotificationSchedulerPort = RuNotificationSchedulerPort { },
+        sigaaNotifPrefs: SigaaNotifPrefsSource = InMemorySigaaNotifPrefsSource(),
+        sigaaNotificationScheduler: SigaaNotificationSchedulerPort = SigaaNotificationSchedulerPort { },
+        sigaaNotificationPoster: SigaaNotificationPosterPort = SigaaNotificationPosterPort { },
     ): UnbPocketCore {
         val cacheStore = SnapshotCacheStore(snapshotDao)
-        var onLogoutCallback: () -> Unit = {}
+        var onLogoutCallback: suspend (Boolean) -> Unit = {}
         val coordinator = SigaaSessionCoordinator(
             transport = transport,
             vault = vault,
             cacheStore = cacheStore,
             fileStore = fileStore,
             clockMillis = clockMillis,
-            onLogoutHook = { onLogoutCallback() },
+            onLogoutHook = { clearCachedData -> onLogoutCallback(clearCachedData) },
         )
         val ruRepo = RuRepositoryImpl(
             transport = transport,
@@ -118,19 +168,41 @@ object UnbPocketCoreFactory {
             fileStore = fileStore,
             pdfExtractor = pdfExtractor,
         )
+        val sigaaNotifCoordinator = SigaaNotificationCoordinator(
+            cacheStore = cacheStore,
+            prefsSource = sigaaNotifPrefs,
+            scheduler = sigaaNotificationScheduler,
+            poster = sigaaNotificationPoster,
+            clockMillis = clockMillis,
+        )
         val core = DefaultUnbPocketCore(
             coordinator = coordinator,
             ruRepo = ruRepo,
             turmasRepo = turmasRepo,
             discenteRepo = discenteRepo,
+            sigaaNotifCoordinator = sigaaNotifCoordinator,
+            sigaaNotificationScheduler = sigaaNotificationScheduler,
             clockMillis = clockMillis,
             preloadDispatcher = preloadDispatcher,
         )
-        onLogoutCallback = {
+        onLogoutCallback = { clearCachedData ->
             core.cancelAndResetPreload()
             turmasRepo.clearRuntimeState()
+            sigaaNotifCoordinator.onLogout(clearCachedData)
         }
         return core
+    }
+}
+
+private class InMemorySigaaNotifPrefsSource : SigaaNotifPrefsSource {
+    private val state = MutableStateFlow(SigaaNotificacaoConfig())
+    override val config: Flow<SigaaNotificacaoConfig> = state
+    override suspend fun setConfig(config: SigaaNotificacaoConfig) {
+        state.value = config
+    }
+
+    override suspend fun resetForLogout() {
+        state.value = SigaaNotificacaoConfig()
     }
 }
 
@@ -139,6 +211,8 @@ private class DefaultUnbPocketCore(
     private val ruRepo: RuRepositoryImpl,
     private val turmasRepo: TurmasRepositoryImpl,
     private val discenteRepo: DiscenteRepositoryImpl,
+    private val sigaaNotifCoordinator: SigaaNotificationCoordinator,
+    private val sigaaNotificationScheduler: SigaaNotificationSchedulerPort,
     private val clockMillis: () -> Long,
     preloadDispatcher: CoroutineDispatcher,
 ) : UnbPocketCore {
@@ -267,7 +341,91 @@ private class DefaultUnbPocketCore(
         val summary = syncPortalHome(includeSaldoRu = true)
         if (summary is CoreResult.Success) {
             startBackgroundPreload(includeTurmaDetails = includeTurmaDetails)
+            sigaaNotifCoordinator.evaluateUpdatesAndNotify(postNotifications = false)
         }
+        return summary
+    }
+
+    override fun observeSigaaNotificacoesConfig(): Flow<SigaaNotificacaoConfig> =
+        sigaaNotifCoordinator.observeConfig()
+
+    override suspend fun setSigaaNotificacoesConfig(config: SigaaNotificacaoConfig): CoreResult<Unit> =
+        sigaaNotifCoordinator.setConfig(config)
+
+    override suspend fun autoEnableSigaaNotificacoesIfEligible(): CoreResult<Boolean> =
+        sigaaNotifCoordinator.autoEnableIfEligible()
+
+    suspend fun prepareLocalReminders(postDueNow: Boolean): Long? =
+        sigaaNotifCoordinator.prepareAndScheduleLocalReminders(postDueNow = postDueNow)
+
+    suspend fun runBackgroundNotificationSync(): CoreResult<PortalHomeSyncSummary> {
+        val config = sigaaNotifCoordinator.getConfig()
+        if (!config.hasAnyEnabled) {
+            return CoreResult.Success(
+                PortalHomeSyncSummary(
+                    syncedAtEpochMillis = clockMillis(),
+                    turmasCount = 0,
+                    atualizacoesCount = 0,
+                    saldoRuAtualizado = false,
+                    anyDataChanged = false,
+                ),
+            )
+        }
+
+        when (val session = coordinator.ensureValidSession()) {
+            is CoreResult.Failure -> return session
+            is CoreResult.Success -> Unit
+        }
+
+        val summary = syncPortalHome(
+            includeSaldoRu = config.needsDiscenteSaldoSync || config.hasAnyRemoteSyncEnabled,
+        )
+        if (summary is CoreResult.Failure) return summary
+
+        if (config.needsBoletimSync) {
+            discenteRepo.refreshBoletimGeralWithDiff(priority = JsfPriority.BACKGROUND_PRELOAD)
+        }
+
+        if (config.needsTurmaDetailsSync) {
+            val turmas = turmasRepo.getCachedTurmasSnapshot()
+            for (turma in turmas) {
+                if (turma.frontEndIdTurma in config.turmasSilenciadas ||
+                    turma.idTurma in config.turmasSilenciadas
+                ) {
+                    continue
+                }
+                if (config.avisosEMateriaisNovos) {
+                    turmasRepo.refreshTurmaDetalheWithDiff(
+                        turma.frontEndIdTurma,
+                        JsfPriority.BACKGROUND_PRELOAD,
+                    )
+                }
+                if (config.riscoFaltaAlerta) {
+                    turmasRepo.refreshFrequenciaWithDiff(
+                        turma.frontEndIdTurma,
+                        JsfPriority.BACKGROUND_PRELOAD,
+                    )
+                }
+                if (config.notasParciaisAlteradas) {
+                    turmasRepo.refreshNotasParciaisWithDiff(
+                        turma.frontEndIdTurma,
+                        JsfPriority.BACKGROUND_PRELOAD,
+                    )
+                }
+                if (config.provasETarefasLembrete) {
+                    turmasRepo.refreshAvaliacoesWithDiff(
+                        turma.frontEndIdTurma,
+                        JsfPriority.BACKGROUND_PRELOAD,
+                    )
+                    turmasRepo.refreshTarefasWithDiff(
+                        turma.frontEndIdTurma,
+                        JsfPriority.BACKGROUND_PRELOAD,
+                    )
+                }
+            }
+        }
+
+        sigaaNotifCoordinator.evaluateUpdatesAndNotify(postNotifications = true)
         return summary
     }
 
@@ -365,5 +523,12 @@ private class DefaultUnbPocketCore(
         }
 
         publish(target = null, phase = PreloadPhase.COMPLETED)
+        val config = sigaaNotifCoordinator.getConfig()
+        if (config.hasAnyEnabled) {
+            sigaaNotifCoordinator.seedMissingBaselineFromCache()
+            if (config.hasAnyLocalScheduleEnabled) {
+                sigaaNotificationScheduler.syncSchedule(config)
+            }
+        }
     }
 }

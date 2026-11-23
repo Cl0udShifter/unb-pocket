@@ -28,6 +28,7 @@ import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Description
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
@@ -95,6 +96,7 @@ fun DiscenteScreen(
     onOpenBoletim: () -> Unit,
     onOpenDocumentos: () -> Unit,
     onOpenLogin: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onLogout: () -> Unit,
     onDismissProfileError: () -> Unit,
     onDismissSyncError: () -> Unit,
@@ -146,6 +148,12 @@ fun DiscenteScreen(
                 )
             },
             actions = {
+                HeaderActionIconButton(
+                    icon = Icons.Rounded.NotificationsNone,
+                    contentDescription = "Notificações",
+                    showDot = authUiState.sigaaNotificacoes.isDiscenteAtivo,
+                    onClick = onOpenNotifications,
+                )
                 HeaderActionIconButton(
                     icon = if (colors.isDark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
                     contentDescription = if (colors.isDark) "Mudar para tema claro" else "Mudar para tema escuro",

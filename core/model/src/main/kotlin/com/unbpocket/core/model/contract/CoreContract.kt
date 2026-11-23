@@ -11,6 +11,7 @@ import com.unbpocket.core.model.discente.CarteirinhaEstudantil
 import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.discente.DocumentoOficialEmitido
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
+import com.unbpocket.core.model.notification.SigaaNotificacaoConfig
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioSemanalRu
@@ -185,4 +186,10 @@ interface UnbPocketCore {
     fun startBackgroundPreload(includeTurmaDetails: Boolean = true)
 
     suspend fun silentRefreshAll(includeTurmaDetails: Boolean = true): CoreResult<PortalHomeSyncSummary>
+
+    fun observeSigaaNotificacoesConfig(): Flow<SigaaNotificacaoConfig>
+
+    suspend fun setSigaaNotificacoesConfig(config: SigaaNotificacaoConfig): CoreResult<Unit>
+
+    suspend fun autoEnableSigaaNotificacoesIfEligible(): CoreResult<Boolean>
 }

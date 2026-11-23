@@ -95,6 +95,7 @@ fun TurmasScreen(
     onRefresh: () -> Unit,
     onOpenLogin: () -> Unit,
     onOpenAccountSheet: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onDismissError: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -138,6 +139,12 @@ fun TurmasScreen(
                 )
             },
             actions = {
+                HeaderActionIconButton(
+                    icon = Icons.Rounded.NotificationsNone,
+                    contentDescription = "Notificações",
+                    showDot = authUiState.sigaaNotificacoes.isTurmasAtivo,
+                    onClick = onOpenNotifications,
+                )
                 if (uiState.authState is AuthState.Authenticated || isEssentialSyncing) {
                     HeaderActionIconButton(
                         icon = Icons.Rounded.Refresh,

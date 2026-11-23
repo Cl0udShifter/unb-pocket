@@ -14,6 +14,9 @@ import com.unbpocket.app.ui.UnbPocketApp
 import com.unbpocket.app.ui.theme.ThemeMode
 import com.unbpocket.app.ui.theme.ThemePreferenceStore
 import com.unbpocket.app.ui.theme.UnbPocketTheme
+import com.unbpocket.core.model.notification.SigaaDeepLinkTarget
+import com.unbpocket.core.model.notification.SigaaNotificacaoTarget
+import com.unbpocket.core.model.notification.SigaaNotificationExtras
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.RuDeepLinkTarget
 import com.unbpocket.core.model.ru.RuNotificationExtras
@@ -21,6 +24,7 @@ import com.unbpocket.core.model.ru.TipoRefeicao
 
 class MainActivity : ComponentActivity() {
     private var pendingRuDeepLink by mutableStateOf<RuDeepLinkTarget?>(null)
+    private var pendingSigaaDeepLink by mutableStateOf<SigaaDeepLinkTarget?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -53,6 +57,8 @@ class MainActivity : ComponentActivity() {
                     onToggleTheme = toggleTheme,
                     pendingRuDeepLink = pendingRuDeepLink,
                     onConsumeRuDeepLink = { pendingRuDeepLink = null },
+                    pendingSigaaDeepLink = pendingSigaaDeepLink,
+                    onConsumeSigaaDeepLink = { pendingSigaaDeepLink = null },
                 )
             }
         }
@@ -66,6 +72,17 @@ class MainActivity : ComponentActivity() {
 
     private fun handleDeepLinkIntent(intent: Intent?) {
         if (intent == null) return
+
+        val sigaaTabKey = intent.getStringExtra(SigaaNotificationExtras.EXTRA_TARGET_TAB)
+        val sigaaTarget = sigaaTabKey?.let { key ->
+            SigaaNotificacaoTarget.entries.firstOrNull { it.routeTabKey == key }
+        }
+        if (sigaaTarget != null) {
+            pendingSigaaDeepLink = SigaaDeepLinkTarget(target = sigaaTarget)
+            intent.removeExtra(SigaaNotificationExtras.EXTRA_TARGET_TAB)
+            intent.removeExtra(SigaaNotificationExtras.EXTRA_NOTIFICATION_TYPE)
+        }
+
         val mealPageIndex = intent.getIntExtra(RuNotificationExtras.EXTRA_MEAL_PAGE_INDEX, -1)
         val meal = TipoRefeicao.entries.firstOrNull { it.pageIndex == mealPageIndex } ?: return
         val campusSlug = intent.getStringExtra(RuNotificationExtras.EXTRA_CAMPUS_SLUG)

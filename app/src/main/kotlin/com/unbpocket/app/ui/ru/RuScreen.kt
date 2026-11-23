@@ -1383,7 +1383,7 @@ private fun AllergenFilterBottomSheet(
 }
 
 @Composable
-private fun RuNotificationScheduleGrid(
+internal fun RuNotificationScheduleGrid(
     notificacoes: RuNotificacaoConfig,
     onToggleSlot: (DiaSemanaRu, TipoRefeicao) -> Unit,
     onToggleDay: (DiaSemanaRu) -> Unit,

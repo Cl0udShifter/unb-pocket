@@ -11,6 +11,9 @@ import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.PreloadProgress
 import com.unbpocket.core.model.contract.UnbPocketCore
+import com.unbpocket.core.model.notification.SigaaNotificacaoConfig
+import com.unbpocket.core.model.notification.SigaaSyncIntervalHours
+import com.unbpocket.core.model.turmas.TurmaResumo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +35,8 @@ data class AuthUiState(
     val loginError: UiErrorBanner? = null,
     val syncError: UiErrorBanner? = null,
     val syncStatusMessage: String? = null,
+    val sigaaNotificacoes: SigaaNotificacaoConfig = SigaaNotificacaoConfig(),
+    val turmasParaNotificacao: List<TurmaResumo> = emptyList(),
 )
 
 private data class AuthFormState(
@@ -45,6 +50,8 @@ private data class AuthFormState(
     val loginError: UiErrorBanner? = null,
     val syncError: UiErrorBanner? = null,
     val syncStatusMessage: String? = null,
+    val sigaaNotificacoes: SigaaNotificacaoConfig = SigaaNotificacaoConfig(),
+    val turmasParaNotificacao: List<TurmaResumo> = emptyList(),
 )
 
 class AuthViewModel(
@@ -56,8 +63,10 @@ class AuthViewModel(
     val uiState: StateFlow<AuthUiState> = combine(
         core.auth.authState,
         core.preloadProgress,
+        core.observeSigaaNotificacoesConfig(),
+        core.turmas.observeTurmasSemestre(),
         formState,
-    ) { auth, preload, form ->
+    ) { auth, preload, sigaaNotifs, turmasSynced, form ->
         AuthUiState(
             authState = auth,
             hasSavedCredentials = form.hasSavedCredentials,
@@ -71,6 +80,8 @@ class AuthViewModel(
             loginError = form.loginError.withoutStaleAuth(auth),
             syncError = form.syncError.withoutStaleAuth(auth),
             syncStatusMessage = form.syncStatusMessage,
+            sigaaNotificacoes = sigaaNotifs,
+            turmasParaNotificacao = turmasSynced?.value.orEmpty(),
         )
     }.stateIn(
         scope = viewModelScope,
@@ -304,5 +315,169 @@ class AuthViewModel(
 
     fun clearSyncStatusMessage() {
         formState.update { it.copy(syncStatusMessage = null) }
+    }
+
+    fun autoEnableSigaaNotificationsIfPermitted() {
+        viewModelScope.launch {
+            core.autoEnableSigaaNotificacoesIfEligible()
+        }
+    }
+
+    fun toggleSigaaTurmasSecao(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            if (enabled) {
+                current.copy(habilitado = true, turmasHabilitado = true)
+            } else {
+                current.copy(turmasHabilitado = false)
+            }
+        }
+    }
+
+    fun toggleSigaaDiscenteSecao(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            if (enabled) {
+                current.copy(habilitado = true, discenteHabilitado = true)
+            } else {
+                current.copy(discenteHabilitado = false)
+            }
+        }
+    }
+
+    fun setAulasLembrete(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                turmasHabilitado = current.turmasHabilitado || enabled,
+                aulasLembrete = enabled,
+            )
+        }
+    }
+
+    fun setAntecedenciaAulaMinutos(minutes: Int) {
+        updateSigaaNotificacoes { current ->
+            current.copy(antecedenciaAulaMinutos = minutes)
+        }
+    }
+
+    fun setAvisosEMateriaisNovos(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                turmasHabilitado = current.turmasHabilitado || enabled,
+                avisosEMateriaisNovos = enabled,
+            )
+        }
+    }
+
+    fun setProvasETarefasLembrete(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                turmasHabilitado = current.turmasHabilitado || enabled,
+                provasETarefasLembrete = enabled,
+            )
+        }
+    }
+
+    fun setNotasParciaisAlteradas(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                turmasHabilitado = current.turmasHabilitado || enabled,
+                notasParciaisAlteradas = enabled,
+            )
+        }
+    }
+
+    fun setRiscoFaltaAlerta(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                turmasHabilitado = current.turmasHabilitado || enabled,
+                riscoFaltaAlerta = enabled,
+            )
+        }
+    }
+
+    fun toggleTurmaSilenciada(turma: TurmaResumo) {
+        updateSigaaNotificacoes { current ->
+            val muted = current.turmasSilenciadas.toMutableSet()
+            val isMutedNow = turma.frontEndIdTurma in muted || turma.idTurma in muted
+            if (isMutedNow) {
+                muted.remove(turma.frontEndIdTurma)
+                muted.remove(turma.idTurma)
+            } else {
+                muted.add(turma.frontEndIdTurma)
+            }
+            current.copy(turmasSilenciadas = muted)
+        }
+    }
+
+    fun setSaldoRuBaixoAlerta(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                discenteHabilitado = current.discenteHabilitado || enabled,
+                saldoRuBaixoAlerta = enabled,
+            )
+        }
+    }
+
+    fun setLimiteRefeicoesRuBaixo(meals: Int) {
+        updateSigaaNotificacoes { current ->
+            current.copy(limiteRefeicoesRuBaixo = meals.coerceAtLeast(1))
+        }
+    }
+
+    fun setExtratoRuMovimentacaoAlerta(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                discenteHabilitado = current.discenteHabilitado || enabled,
+                extratoRuMovimentacaoAlerta = enabled,
+            )
+        }
+    }
+
+    fun setBoletimAlteradoAlerta(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                discenteHabilitado = current.discenteHabilitado || enabled,
+                boletimAlteradoAlerta = enabled,
+            )
+        }
+    }
+
+    fun setIndicesAlteradosAlerta(enabled: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(
+                habilitado = current.habilitado || enabled,
+                discenteHabilitado = current.discenteHabilitado || enabled,
+                indicesAlteradosAlerta = enabled,
+            )
+        }
+    }
+
+    fun setSigaaSyncInterval(interval: SigaaSyncIntervalHours) {
+        updateSigaaNotificacoes { current ->
+            current.copy(syncIntervalHours = interval)
+        }
+    }
+
+    fun setSigaaSomenteWifi(onlyWifi: Boolean) {
+        updateSigaaNotificacoes { current ->
+            current.copy(somenteWifi = onlyWifi)
+        }
+    }
+
+    private fun updateSigaaNotificacoes(
+        transform: (SigaaNotificacaoConfig) -> SigaaNotificacaoConfig,
+    ) {
+        val current = uiState.value.sigaaNotificacoes
+        val updated = transform(current).copy(userConfigured = true)
+        viewModelScope.launch {
+            core.setSigaaNotificacoesConfig(updated)
+        }
     }
 }

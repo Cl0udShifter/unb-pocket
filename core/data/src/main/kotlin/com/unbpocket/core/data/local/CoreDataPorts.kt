@@ -2,6 +2,8 @@ package com.unbpocket.core.data.local
 
 import com.unbpocket.core.data.security.StoredCredentials
 import com.unbpocket.core.model.common.CoreResult
+import com.unbpocket.core.model.notification.SigaaNotificacaoConfig
+import com.unbpocket.core.model.notification.SigaaNotificacaoConteudo
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.RuNotificacaoConfig
@@ -29,6 +31,20 @@ interface RuPrefsSource {
 
 fun interface RuNotificationSchedulerPort {
     fun syncSchedule(config: RuNotificacaoConfig)
+}
+
+interface SigaaNotifPrefsSource {
+    val config: Flow<SigaaNotificacaoConfig>
+    suspend fun setConfig(config: SigaaNotificacaoConfig)
+    suspend fun resetForLogout()
+}
+
+fun interface SigaaNotificationSchedulerPort {
+    fun syncSchedule(config: SigaaNotificacaoConfig)
+}
+
+fun interface SigaaNotificationPosterPort {
+    fun post(notifications: List<SigaaNotificacaoConteudo>)
 }
 
 interface FileStore {

@@ -137,6 +137,15 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
   * `fotoLocalPath` guarda o caminho local em cache da foto de perfil do SIGAA (`#perfil-docente .foto img`, baixada com `forceDownload` apenas quando `fotoUrl` muda, quando o arquivo local esta ausente ou no refresh manual `refreshDiscenteResumo`), permanecendo `null` de forma nao-fatal se a conta nao tiver foto (`no_picture`) ou o download falhar para que a UI exiba as iniciais como fallback.
 * `IndicesIntegralizacao(ira: Double?, mp: Double?, chObrigatoriaPendente: Int?, chOptativaPendente: Int?, chComplementarPendente: Int?, chTotalCurriculo: Int?, percentualIntegralizadoExato: Double?, percentualIntegralizadoTexto: String?)`
 * `DiscenteResumo(perfil: PerfilDiscente, indices: IndicesIntegralizacao)`
+
+### 3.5 Notificacoes SIGAA e Painel Discente (`com.unbpocket.core.model.notification`)
+* `SigaaSyncIntervalHours`: `H2(2L, "A cada 2h")`, `H4(4L, "A cada 4h")`, `H6(6L, "A cada 6h")`, `H12(12L, "A cada 12h")`.
+* `AulaLeadMinutes`: `MIN_15(15, "15 min antes")`, `MIN_30(30, "30 min antes")`, `MIN_60(60, "1h antes")`.
+* `SigaaNotificacaoTarget`: `TURMAS("TURMAS")`, `DISCENTE("DISCENTE")`.
+* `SigaaNotificacaoTipo`: `AULA_PROXIMA`, `TURMA_AVISO_OU_MATERIAL`, `AVALIACAO_OU_TAREFA`, `NOTA_PARCIAL_ALTERADA`, `RISCO_FALTAS` (destino `TURMAS`); `RU_SALDO_BAIXO`, `RU_EXTRATO_MOVIMENTACAO`, `BOLETIM_ATUALIZADO`, `INDICES_ATUALIZADOS` (destino `DISCENTE`).
+* `SigaaNotificacaoConfig(habilitado: Boolean = false, turmasHabilitado: Boolean = true, aulasLembrete: Boolean = true, antecedenciaAulaMinutos: Int = 30, avisosEMateriaisNovos: Boolean = true, provasETarefasLembrete: Boolean = true, notasParciaisAlteradas: Boolean = true, riscoFaltaAlerta: Boolean = true, turmasSilenciadas: Set<String> = emptySet(), discenteHabilitado: Boolean = true, saldoRuBaixoAlerta: Boolean = true, limiteRefeicoesRuBaixo: Int = 2, extratoRuMovimentacaoAlerta: Boolean = true, boletimAlteradoAlerta: Boolean = true, indicesAlteradosAlerta: Boolean = true, syncIntervalHours: SigaaSyncIntervalHours = SigaaSyncIntervalHours.H4, somenteWifi: Boolean = false, userConfigured: Boolean = false)` (com `LIMITE_REFEICOES_OPCOES = [1, 2, 3, 5]` e helpers `isTurmasAtivo`, `isDiscenteAtivo`, `hasAnyEnabled`, `hasAnyLocalScheduleEnabled`, `hasAnyRemoteSyncEnabled`, `needsTurmaDetailsSync`, `needsBoletimSync`, `needsDiscenteSaldoSync`).
+* `SigaaNotificacaoConteudo(dedupKey: String, notificationId: Int, tipo: SigaaNotificacaoTipo, titulo: String, resumo: String, detalhesExpandido: String? = null, target: SigaaNotificacaoTarget, triggerAtEpochMillis: Long)`.
+* `SigaaDeepLinkTarget(target: SigaaNotificacaoTarget)` e chaves em `SigaaNotificationExtras` (`EXTRA_TARGET_TAB`, `EXTRA_NOTIFICATION_TYPE`) para navegacao direta as abas `TURMAS` ou `DISCENTE` ao tocar na notificacao.
 * `CarteirinhaEstudantil(nomeCompleto: String, matricula: String, cpfTexto: String?, curso: String, nivel: String, validadeTexto: String, qrPayload16Digitos: String, qrImageLocalPath: String, foto3x4LocalPath: String?, pdfLocalPath: String)`
 * `NotaDisciplinaBoletim(codigo: String, disciplina: String, nota1: String?, resultadoMencao: String?, faltas: Int?, situacao: String)`
 * `BoletimSemestre(semestre: String, disciplinas: List<NotaDisciplinaBoletim>)`
@@ -162,11 +171,19 @@ interface UnbPocketCore {
     fun startBackgroundPreload(includeTurmaDetails: Boolean = true)
 
     suspend fun silentRefreshAll(includeTurmaDetails: Boolean = true): CoreResult<PortalHomeSyncSummary>
+
+    fun observeSigaaNotificacoesConfig(): Flow<SigaaNotificacaoConfig>
+
+    suspend fun setSigaaNotificacoesConfig(config: SigaaNotificacaoConfig): CoreResult<Unit>
+
+    suspend fun autoEnableSigaaNotificacoesIfEligible(): CoreResult<Boolean>
 }
 ```
 * `syncPortalHome` executa a Fase 1 da pre-carga usando `discente.jsf` (reutilizando o HTML capturado no login CAS quando recem-autenticado, sem nova requisicao redundante) + Atestado de Matricula + `#formExibirExtrato` opcional, atualizando `DiscenteResumo`, `TurmaResumo`, `AtualizacaoTurmaFeed` e `SaldoExtratoRu` no Room quando houver alteracao estrutural (`anyDataChanged`).
 * `startBackgroundPreload` inicia de forma nao-bloqueante a Fase 2 no escopo do Core (`CarteirinhaEstudantil`, `BoletimSemestre` e, para cada turma matriculada, detalhes AVA, frequencia, notas parciais, avaliacoes e tarefas), reportando progresso em `preloadProgress`. Em `logout`, a pre-carga ativa e cancelada imediatamente.
 * `silentRefreshAll` implementa o fluxo Stale-While-Revalidate na abertura do app com credenciais salvas: valida/renova a sessao (`ensureValidSession`), executa `syncPortalHome` e dispara `startBackgroundPreload`. Alteracoes reais propagam via Room `Flow`; payloads identicos mantem o estado visual intacto sem sobrescrita nem banners transientes de falha.
+* `observeSigaaNotificacoesConfig` e `setSigaaNotificacoesConfig` leem e persistem preferencias locais de notificacoes de `Aulas & Turmas` e `Painel Discente` via DataStore (`sigaa_notifications`), populando o baseline inicial no Room sem disparos em lote e sincronizando `AlarmManager` (lembretes de aula com 15/30/60 min e provas/tarefas na vespera as 20h e no dia as 07h ou 1h antes) e `WorkManager` (`2h`/`4h`/`6h`/`12h`, com opcao somente Wi-Fi).
+* `autoEnableSigaaNotificacoesIfEligible` ativa automaticamente o mestre SIGAA na autenticacao quando a permissao de notificacao ja estiver concedida e `userConfigured == false`, mantendo o usuario livre para desativar depois.
 
 ### 4.2 `AuthRepository`
 * `val authState: StateFlow<AuthState>`
@@ -236,3 +253,4 @@ interface UnbPocketCore {
 4. **Valores Monetarios em Centavos (`Long`):** Saldo, extrato e tarifas do RU usam `Long` em centavos para evitar imprecisao de ponto flutuante.
 5. **Credenciais Seguras:** `KeystoreCredentialVault` cifra matricula e senha via Android Keystore (`AES/GCM/NoPadding`) dentro de `noBackupFilesDir`, isolado de backups automaticos.
 6. **Cache com Comparacao Estrutural (Diff-Before-Write):** `SnapshotCacheStore` compara `payloadJson` e `origin` antes de gravar no Room; snapshots identicos nao disparam upsert nem reemissoes visuais desnecessarias na UI.
+7. **Notificacoes em Segundo Plano e Isolamento de Logout:** Com o app fechado, `SigaaNotificationAlarmReceiver` (`BOOT_COMPLETED`, `MY_PACKAGE_REPLACED`, `TIME_SET`, `TIMEZONE_CHANGED`) e `SigaaBackgroundSyncWorker` consultam o Core para disparar lembretes locais e checar alteracoes reais contra o baseline salvo no Room (evitando repeticao de saldo baixo do RU enquanto nao houver nova queda ou recarga). Em `logout`, alarmes, job SIGAA no `WorkManager`, baseline e preferencias de notificacao SIGAA sao limpos, preservando integralmente as notificacoes do cardapio do RU.

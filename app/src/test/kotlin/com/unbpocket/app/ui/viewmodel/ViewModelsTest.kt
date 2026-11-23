@@ -8,6 +8,8 @@ import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.common.PreloadProgress
 import com.unbpocket.core.model.common.SyncedData
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
+import com.unbpocket.core.model.notification.AulaLeadMinutes
+import com.unbpocket.core.model.notification.SigaaSyncIntervalHours
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioDiaRu
@@ -22,6 +24,7 @@ import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.NoticiaTurmaAva
 import com.unbpocket.core.model.turmas.NoticiaTurmaResumoAva
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
+import com.unbpocket.core.model.turmas.TurmaResumo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -625,6 +628,66 @@ class ViewModelsTest {
         assertEquals(CampusRu.GAMA, vm.uiState.value.preferencias.campusSelecionado)
         assertEquals(2, vm.uiState.value.selectedDayIndex)
         assertEquals(TipoRefeicao.JANTAR, vm.uiState.value.selectedMeal)
+
+        collector.cancel()
+    }
+
+    @Test
+    fun `AuthViewModel updates sigaa notification preferences, mutes turmas and handles autoEnable`() = runTest {
+        val core = FakeUnbPocketCore()
+        val turma = TurmaResumo(
+            idTurma = "1614",
+            frontEndIdTurma = "fe_1614",
+            semestre = "2026.2",
+            codigoDisciplina = "ENE0064",
+            nomeDisciplina = "REDES SEM FIO",
+            numeroTurma = "01",
+            cargaHorariaHoras = 60,
+            docenteNome = "Joao",
+            local = "FT AT-31/12",
+            codigoHorarioRaw = "24M12",
+            horarioSlots = emptyList(),
+            horarioExtenso = emptyList(),
+        )
+        core.turmasFake.turmas.value = SyncedData(listOf(turma), DataOrigin.CACHE, 1000L)
+
+        val vm = AuthViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        assertFalse(vm.uiState.value.sigaaNotificacoes.habilitado)
+        assertEquals(1, vm.uiState.value.turmasParaNotificacao.size)
+
+        vm.autoEnableSigaaNotificationsIfPermitted()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.sigaaNotificacoes.habilitado)
+        assertFalse(vm.uiState.value.sigaaNotificacoes.userConfigured)
+
+        vm.setAntecedenciaAulaMinutos(AulaLeadMinutes.MIN_15.minutes)
+        vm.setSigaaSyncInterval(SigaaSyncIntervalHours.H2)
+        vm.setSigaaSomenteWifi(true)
+        vm.setLimiteRefeicoesRuBaixo(3)
+        vm.toggleTurmaSilenciada(turma)
+        advanceUntilIdle()
+
+        val cfg = vm.uiState.value.sigaaNotificacoes
+        assertTrue(cfg.userConfigured)
+        assertEquals(15, cfg.antecedenciaAulaMinutos)
+        assertEquals(SigaaSyncIntervalHours.H2, cfg.syncIntervalHours)
+        assertTrue(cfg.somenteWifi)
+        assertEquals(3, cfg.limiteRefeicoesRuBaixo)
+        assertTrue("fe_1614" in cfg.turmasSilenciadas)
+
+        // Toggle off explicitly preserves userConfigured so autoEnable won't force re-enabling
+        vm.toggleSigaaTurmasSecao(false)
+        vm.toggleSigaaDiscenteSecao(false)
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.sigaaNotificacoes.isTurmasAtivo)
+        assertFalse(vm.uiState.value.sigaaNotificacoes.isDiscenteAtivo)
+
+        vm.autoEnableSigaaNotificationsIfPermitted()
+        advanceUntilIdle()
+        assertFalse(vm.uiState.value.sigaaNotificacoes.isTurmasAtivo)
 
         collector.cancel()
     }

@@ -1,8 +1,12 @@
 package com.unbpocket.app.ui
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.view.WindowManager
+import androidx.core.content.ContextCompat
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -26,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
@@ -50,6 +55,8 @@ import com.unbpocket.app.ui.discente.BoletimScreen
 import com.unbpocket.app.ui.discente.DiscenteScreen
 import com.unbpocket.app.ui.discente.DocumentosScreen
 import com.unbpocket.app.ui.discente.RuFullScreenQrPass
+import com.unbpocket.app.ui.notifications.NotificationCenterBottomSheet
+import com.unbpocket.app.ui.notifications.NotificationCenterSection
 import com.unbpocket.app.ui.ru.RuScreen
 import com.unbpocket.app.ui.theme.ThemeMode
 import com.unbpocket.app.ui.theme.UnbTheme
@@ -63,6 +70,8 @@ import com.unbpocket.app.ui.viewmodel.UnbViewModelFactory
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.contract.UnbPocketCore
+import com.unbpocket.core.model.notification.SigaaDeepLinkTarget
+import com.unbpocket.core.model.notification.SigaaNotificacaoTarget
 import com.unbpocket.core.model.ru.RuDeepLinkTarget
 
 private object AppRoutes {
@@ -83,6 +92,8 @@ fun UnbPocketApp(
     modifier: Modifier = Modifier,
     pendingRuDeepLink: RuDeepLinkTarget? = null,
     onConsumeRuDeepLink: () -> Unit = {},
+    pendingSigaaDeepLink: SigaaDeepLinkTarget? = null,
+    onConsumeSigaaDeepLink: () -> Unit = {},
 ) {
     val factory = remember(core) { UnbViewModelFactory(core) }
     val authViewModel: AuthViewModel = viewModel(factory = factory)
@@ -107,9 +118,30 @@ fun UnbPocketApp(
     val bottomContentPadding = if (!isExpandedWidth && isTopLevelRoute) 112.dp else 24.dp
 
     var showAccountSheet by remember { mutableStateOf(false) }
+    var showNotificationCenter by remember { mutableStateOf(false) }
+    var notificationInitialSection by remember { mutableStateOf<NotificationCenterSection?>(null) }
+    val appContext = LocalContext.current
+
+    val openNotificationCenter: (NotificationCenterSection?) -> Unit = { section ->
+        notificationInitialSection = section
+        showNotificationCenter = true
+    }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         ruViewModel.refreshIfStaleSilently()
+    }
+
+    LaunchedEffect(authUiState.authState) {
+        if (authUiState.authState is AuthState.Authenticated) {
+            val hasPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(
+                    appContext,
+                    Manifest.permission.POST_NOTIFICATIONS,
+                ) == PackageManager.PERMISSION_GRANTED
+            if (hasPermission) {
+                authViewModel.autoEnableSigaaNotificationsIfPermitted()
+            }
+        }
     }
 
     val navigateToTopDestination: (TopDestination) -> Unit = { dest ->
@@ -127,10 +159,24 @@ fun UnbPocketApp(
     LaunchedEffect(pendingRuDeepLink) {
         val target = pendingRuDeepLink ?: return@LaunchedEffect
         showAccountSheet = false
+        showNotificationCenter = false
         discenteViewModel.resetQrCardToBalance()
         ruViewModel.applyDeepLink(target)
         navigateToTopDestination(TopDestination.RU)
         onConsumeRuDeepLink()
+    }
+
+    LaunchedEffect(pendingSigaaDeepLink) {
+        val target = pendingSigaaDeepLink ?: return@LaunchedEffect
+        showAccountSheet = false
+        showNotificationCenter = false
+        discenteViewModel.resetQrCardToBalance()
+        val destination = when (target.target) {
+            SigaaNotificacaoTarget.TURMAS -> TopDestination.TURMAS
+            SigaaNotificacaoTarget.DISCENTE -> TopDestination.DISCENTE
+        }
+        navigateToTopDestination(destination)
+        onConsumeSigaaDeepLink()
     }
 
     val navigateToLogin: () -> Unit = {
@@ -158,6 +204,7 @@ fun UnbPocketApp(
             onToggleTheme = onToggleTheme,
             onOpenLogin = navigateToLogin,
             onOpenAccountSheet = { showAccountSheet = true },
+            onOpenNotificationCenter = openNotificationCenter,
         )
     }
 
@@ -260,8 +307,38 @@ fun UnbPocketApp(
             onOpenLogin = navigateToLogin,
             onOpenDiscente = { navigateToTopDestination(TopDestination.DISCENTE) },
             onSyncAll = { authViewModel.syncAll() },
+            onOpenNotifications = { openNotificationCenter(null) },
             onLogout = { authViewModel.logout(clearCachedData = true) },
             onDismiss = { showAccountSheet = false },
+        )
+    }
+
+    if (showNotificationCenter) {
+        NotificationCenterBottomSheet(
+            initialSection = notificationInitialSection,
+            ruNotificacoes = ruUiState.preferencias.notificacoes,
+            sigaaNotificacoes = authUiState.sigaaNotificacoes,
+            turmas = authUiState.turmasParaNotificacao,
+            onSetRuHabilitadas = ruViewModel::setNotificacoesHabilitadas,
+            onToggleRuSlot = ruViewModel::toggleNotificacaoSlot,
+            onToggleRuDay = ruViewModel::toggleNotificacaoDia,
+            onToggleSigaaTurmasSecao = authViewModel::toggleSigaaTurmasSecao,
+            onSetAulasLembrete = authViewModel::setAulasLembrete,
+            onSetAntecedenciaAulaMinutos = authViewModel::setAntecedenciaAulaMinutos,
+            onSetAvisosEMateriaisNovos = authViewModel::setAvisosEMateriaisNovos,
+            onSetProvasETarefasLembrete = authViewModel::setProvasETarefasLembrete,
+            onSetNotasParciaisAlteradas = authViewModel::setNotasParciaisAlteradas,
+            onSetRiscoFaltaAlerta = authViewModel::setRiscoFaltaAlerta,
+            onToggleTurmaSilenciada = authViewModel::toggleTurmaSilenciada,
+            onToggleSigaaDiscenteSecao = authViewModel::toggleSigaaDiscenteSecao,
+            onSetSaldoRuBaixoAlerta = authViewModel::setSaldoRuBaixoAlerta,
+            onSetLimiteRefeicoesRuBaixo = authViewModel::setLimiteRefeicoesRuBaixo,
+            onSetExtratoRuMovimentacaoAlerta = authViewModel::setExtratoRuMovimentacaoAlerta,
+            onSetBoletimAlteradoAlerta = authViewModel::setBoletimAlteradoAlerta,
+            onSetIndicesAlteradosAlerta = authViewModel::setIndicesAlteradosAlerta,
+            onSetSyncInterval = authViewModel::setSigaaSyncInterval,
+            onSetSomenteWifi = authViewModel::setSigaaSomenteWifi,
+            onDismiss = { showNotificationCenter = false },
         )
     }
 }
@@ -282,6 +359,7 @@ private fun UnbNavHost(
     onToggleTheme: () -> Unit,
     onOpenLogin: () -> Unit,
     onOpenAccountSheet: () -> Unit,
+    onOpenNotificationCenter: (NotificationCenterSection?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val topRoutes = remember { TopDestination.entries.map { it.route }.toSet() }
@@ -372,6 +450,7 @@ private fun UnbNavHost(
                 onRefresh = { turmasViewModel.refreshSemestre() },
                 onOpenLogin = onOpenLogin,
                 onOpenAccountSheet = onOpenAccountSheet,
+                onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.TURMAS) },
                 onDismissError = turmasViewModel::dismissListError,
             )
         }
@@ -406,6 +485,7 @@ private fun UnbNavHost(
                 onOpenBoletim = { navController.navigate(AppRoutes.BOLETIM) },
                 onOpenDocumentos = { navController.navigate(AppRoutes.DOCUMENTOS) },
                 onOpenLogin = onOpenLogin,
+                onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.DISCENTE) },
                 onLogout = {
                     discenteViewModel.resetQrCardToBalance()
                     authViewModel.logout(clearCachedData = true)

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.rounded.Logout
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Sync
@@ -303,6 +304,7 @@ fun AccountQuickSheet(
     onOpenLogin: () -> Unit,
     onOpenDiscente: () -> Unit,
     onSyncAll: () -> Unit,
+    onOpenNotifications: () -> Unit,
     onLogout: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -489,6 +491,19 @@ fun AccountQuickSheet(
                 ThemeMode.LIGHT -> "Tema claro ativo (toque para escuro)"
                 ThemeMode.SYSTEM -> "Seguindo tema do sistema"
             }
+            SheetActionRow(
+                icon = Icons.Rounded.NotificationsNone,
+                title = "Central de Notificações",
+                subtitle = if (authUiState.sigaaNotificacoes.hasAnyEnabled) {
+                    "Alertas de RU, Aulas & Turmas e Painel Discente"
+                } else {
+                    "Configurar alertas de cardápio, aulas, provas e notas"
+                },
+                onClick = {
+                    onDismiss()
+                    onOpenNotifications()
+                },
+            )
             SheetActionRow(
                 icon = if (colors.isDark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
                 title = "Aparência do aplicativo",

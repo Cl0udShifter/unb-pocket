@@ -26,7 +26,7 @@ class SigaaSessionCoordinator(
     private val cacheStore: SnapshotCacheStore,
     private val fileStore: FileStore,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
-    private val onLogoutHook: () -> Unit = {},
+    private val onLogoutHook: suspend (clearCachedData: Boolean) -> Unit = {},
 ) : AuthRepository {
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     override val authState: StateFlow<AuthState> = _authState.asStateFlow()
@@ -67,7 +67,7 @@ class SigaaSessionCoordinator(
     }
 
     override suspend fun logout(clearCachedData: Boolean): CoreResult<Unit> = runCatching {
-        onLogoutHook()
+        onLogoutHook(clearCachedData)
         freshLoginPortalHtml = null
         freshLoginCapturedAtMillis = 0L
         transport.session.cookieJar.clear()

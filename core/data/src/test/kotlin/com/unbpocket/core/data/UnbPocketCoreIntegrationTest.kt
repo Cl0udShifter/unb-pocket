@@ -1,6 +1,8 @@
 package com.unbpocket.core.data
 
 import com.unbpocket.core.data.local.RuNotificationSchedulerPort
+import com.unbpocket.core.data.local.SigaaNotificationPosterPort
+import com.unbpocket.core.data.local.SigaaNotificationSchedulerPort
 import com.unbpocket.core.model.auth.AuthState
 import com.unbpocket.core.model.auth.CredentialsInput
 import com.unbpocket.core.model.common.CoreError
@@ -9,6 +11,9 @@ import com.unbpocket.core.model.common.DataOrigin
 import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.contract.UnbPocketCore
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
+import com.unbpocket.core.model.notification.SigaaNotificacaoConfig
+import com.unbpocket.core.model.notification.SigaaNotificacaoConteudo
+import com.unbpocket.core.model.notification.SigaaNotificacaoTipo
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CampusRu
 import com.unbpocket.core.model.ru.CardapioParserStatus
@@ -83,6 +88,8 @@ class UnbPocketCoreIntegrationTest {
 
     private fun createCore(
         notificationScheduler: RuNotificationSchedulerPort = RuNotificationSchedulerPort { },
+        sigaaNotificationScheduler: SigaaNotificationSchedulerPort = SigaaNotificationSchedulerPort { },
+        sigaaNotificationPoster: SigaaNotificationPosterPort = SigaaNotificationPosterPort { },
     ): UnbPocketCore {
         val baseUrl = server.url("").toString().trimEnd('/')
         val jar = InMemoryCookieJar()
@@ -111,6 +118,8 @@ class UnbPocketCoreIntegrationTest {
             pdfExtractor = pdfExtractor,
             clockMillis = { fakeClock },
             notificationScheduler = notificationScheduler,
+            sigaaNotificationScheduler = sigaaNotificationScheduler,
+            sigaaNotificationPoster = sigaaNotificationPoster,
         )
     }
 
@@ -1128,6 +1137,184 @@ class UnbPocketCoreIntegrationTest {
         // 6. Logout limpa foto do discente do disco
         assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
         assertFalse(File(updatedPath).exists())
+    }
+
+    @Test
+    fun sigaaNotificationsAutoEnableBackgroundSyncDiffAndLogoutIsolation() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        var currentIra = "3.2102"
+        var currentExtratoSaldo = "R$ 8,65"
+        var currentExtratoExtraTx = ""
+        var currentFeedNotice = "Novo aviso"
+        var currentAvaUpdated = false
+        var currentNotasUpdated = false
+        var currentBoletimMencao = "SS"
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/login/cas?ticket=ST-NOTIF")
+
+                    path.startsWith("/sigaa/login/cas") ->
+                        redirect("$baseUrl/sigaa/verPortalDiscente.do")
+
+                    path.startsWith("/sigaa/verPortalDiscente.do") ->
+                        latin1Response(
+                            discenteHomeHtml()
+                                .replace("3.2102", currentIra)
+                                .replace("Novo aviso", currentFeedNotice),
+                        )
+
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formExibirExtrato") -> latin1Response(
+                                """
+                                <html><body>
+                                  <div><h4>Extrato no Restaurante Universitário</h4>
+                                    <table>
+                                      <tr><td>23/11/2026 07:10</td><td>Saldo</td><td>$currentExtratoSaldo</td></tr>
+                                      $currentExtratoExtraTx
+                                      <tr><td>16/11/2026 17:37</td><td>Grupo 4 Jantar</td><td>-R$ 2,50</td></tr>
+                                    </table>
+                                  </div>
+                                </body></html>
+                                """.trimIndent(),
+                            )
+
+                            body.contains("atestadoMatriculaUnb") -> latin1Response(atestadoHtml())
+                            body.contains("frontEndIdTurma") -> {
+                                val ava = if (!currentAvaUpdated) {
+                                    avaHomeHtml()
+                                } else {
+                                    avaHomeHtml().replace("<h4>Roteiro - 22/11/2026 09:34</h4>", "<h4>Prova adiada - 23/11/2026 09:35</h4>")
+                                }
+                                latin1Response(ava)
+                            }
+                            body.contains("relatorioNotasAluno") -> latin1Response(
+                                boletimHtml().replace("<td>SS</td><td>SS</td>", "<td>$currentBoletimMencao</td><td>$currentBoletimMencao</td>"),
+                            )
+                            body.contains("emitiCarteiraEstudantilUnb") -> pdfResponse("%PDF-1.4 carteirinha")
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+
+                    path.startsWith("/sigaa/ava/index.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formMenu%3Afreq") -> latin1Response(frequenciaHtml())
+                            body.contains("formMenu%3Anotas") -> {
+                                if (!currentNotasUpdated) {
+                                    latin1Response(notasIndisponiveisHtml())
+                                } else {
+                                    latin1Response(
+                                        """
+                                        <html><body>
+                                          <table class="tabelaRelatorio">
+                                            <thead><tr><th>Unidade 1</th><th>Media</th><th>Situacao</th></tr></thead>
+                                            <tbody><tr><td>9,5</td><td>9,5</td><td>APR</td></tr></tbody>
+                                          </table>
+                                        </body></html>
+                                        """.trimIndent(),
+                                    )
+                                }
+                            }
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        // Segunda-feira 23/11/2026 07:35 Brasilia (25 min antes da aula 24M12 das 08:00)
+        fakeClock = ZonedDateTime.of(2026, 11, 23, 7, 35, 0, 0, ZoneId.of("America/Sao_Paulo"))
+            .toInstant().toEpochMilli()
+
+        val scheduledConfigs = mutableListOf<SigaaNotificacaoConfig>()
+        val postedNotifications = mutableListOf<SigaaNotificacaoConteudo>()
+        val core = createCore(
+            sigaaNotificationScheduler = SigaaNotificationSchedulerPort { scheduledConfigs += it },
+            sigaaNotificationPoster = SigaaNotificationPosterPort { postedNotifications += it },
+        )
+        pdfExtractor.carteirinhaResult = CoreResult.Success(buildSyntheticCarteirinhaInput())
+
+        // 1. Login + sync + auto-enable inicial (sem flooding)
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        assertTrue(core.syncPortalHome(includeSaldoRu = true) is CoreResult.Success)
+        assertEquals(true, (core.autoEnableSigaaNotificacoesIfEligible() as CoreResult.Success).value)
+        assertTrue(core.observeSigaaNotificacoesConfig().first().habilitado)
+
+        // Usuario desativa manualmente -> autoEnable respeita escolha
+        core.setSigaaNotificacoesConfig(SigaaNotificacaoConfig(habilitado = false, userConfigured = true))
+        assertEquals(false, (core.autoEnableSigaaNotificacoesIfEligible() as CoreResult.Success).value)
+        assertFalse(core.observeSigaaNotificacoesConfig().first().habilitado)
+
+        // 2. Reativa configuracao e faz seed inicial na primeira sincronizacao em segundo plano
+        core.setSigaaNotificacoesConfig(
+            SigaaNotificacaoConfig(
+                habilitado = true,
+                provasETarefasLembrete = false,
+                userConfigured = true,
+            ),
+        )
+        assertTrue(UnbPocketCoreFactory.runBackgroundNotificationSyncForCore(core) is CoreResult.Success)
+        assertTrue(postedNotifications.isEmpty())
+
+        // 3. Lembrete local da aula das 08:00 dispara uma vez na janela e nao duplica na chamada seguinte
+        val nextClassTrigger = UnbPocketCoreFactory.prepareLocalRemindersForCore(core, postDueNow = true)
+        assertNotNull(nextClassTrigger)
+        assertEquals(listOf(SigaaNotificacaoTipo.AULA_PROXIMA), postedNotifications.map { it.tipo })
+        postedNotifications.clear()
+        UnbPocketCoreFactory.prepareLocalRemindersForCore(core, postDueNow = true)
+        assertTrue(postedNotifications.isEmpty())
+
+        // 4. Alteracoes remotas no SIGAA e RU geram notificacoes precisas no proximo ciclo em segundo plano
+        fakeClock += 60_000L
+        currentIra = "3.5120"
+        currentExtratoSaldo = "R$ 2,50"
+        currentExtratoExtraTx = "<tr><td>23/11/2026 07:36</td><td>Grupo 4 Cafe</td><td>-R$ 2,50</td></tr>"
+        currentFeedNotice = "Prova adiada"
+        currentAvaUpdated = true
+        currentNotasUpdated = true
+        currentBoletimMencao = "MS"
+
+        assertTrue(UnbPocketCoreFactory.runBackgroundNotificationSyncForCore(core) is CoreResult.Success)
+        val postedTipos = postedNotifications.map { it.tipo }.toSet()
+        assertTrue(SigaaNotificacaoTipo.TURMA_AVISO_OU_MATERIAL in postedTipos)
+        assertTrue(SigaaNotificacaoTipo.NOTA_PARCIAL_ALTERADA in postedTipos)
+        assertTrue(SigaaNotificacaoTipo.RU_SALDO_BAIXO in postedTipos)
+        assertTrue(SigaaNotificacaoTipo.RU_EXTRATO_MOVIMENTACAO in postedTipos)
+        assertTrue(SigaaNotificacaoTipo.BOLETIM_ATUALIZADO in postedTipos)
+        assertTrue(SigaaNotificacaoTipo.INDICES_ATUALIZADOS in postedTipos)
+
+        // 5. Reexecucao sem nova queda de saldo NAO repete RU_SALDO_BAIXO
+        postedNotifications.clear()
+        fakeClock += 60_000L
+        assertTrue(UnbPocketCoreFactory.runBackgroundNotificationSyncForCore(core) is CoreResult.Success)
+        assertTrue(postedNotifications.isEmpty())
+
+        // 6. Logout limpa notificacoes/baseline SIGAA, mas preserva config de notificacao do RU
+        val ruNotifConfig = RuNotificacaoConfig(
+            habilitado = true,
+            refeicoesPorDia = mapOf(DiaSemanaRu.SEGUNDA to setOf(TipoRefeicao.ALMOCO)),
+        )
+        assertTrue(core.ru.setNotificacoesConfig(ruNotifConfig) is CoreResult.Success)
+        assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
+
+        val sigaaAfterLogout = core.observeSigaaNotificacoesConfig().first()
+        assertFalse(sigaaAfterLogout.habilitado)
+        assertFalse(sigaaAfterLogout.userConfigured)
+        assertFalse(scheduledConfigs.last().habilitado)
+        assertTrue(core.ru.observePreferencias().first().notificacoes.habilitado)
     }
 
     private fun redirect(location: String) =

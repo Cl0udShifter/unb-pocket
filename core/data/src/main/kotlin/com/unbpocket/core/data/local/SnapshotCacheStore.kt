@@ -41,6 +41,10 @@ import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import com.unbpocket.core.model.turmas.TurmaResumo
 import com.unbpocket.core.model.turmas.TurnoSigaa
 import com.unbpocket.core.model.turmas.UnidadeNotaTurma
+import com.unbpocket.core.parser.FrequenciaBaselineState
+import com.unbpocket.core.parser.IndicesBaselineState
+import com.unbpocket.core.parser.NotasParciaisBaselineState
+import com.unbpocket.core.parser.SigaaNotificationBaseline
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.KSerializer
@@ -157,6 +161,8 @@ class SnapshotCacheStore(
         const val DISCENTE_CARTEIRINHA = "discente_carteirinha"
         const val DISCENTE_BOLETIM = "discente_boletim"
         const val DISCENTE_DOCUMENTOS = "discente_documentos"
+        const val SIGAA_NOTIF_BASELINE = "sigaa_notif_baseline"
+        const val SIGAA_NOTIF_SENT_KEYS = "sigaa_notif_sent_keys"
     }
 }
 
@@ -793,3 +799,125 @@ internal object CacheMappers {
 data class RuAutoSyncMetaDto(
     val lastCheckEpochMillis: Long,
 )
+
+@Serializable
+data class FrequenciaBaselineStateDto(
+    val faltasComputadas: Int,
+    val limiteMaximoFaltas: Int,
+    val faltasRestantes: Int,
+    val emRiscoReprovacaoPorFalta: Boolean,
+)
+
+@Serializable
+data class NotasParciaisBaselineStateDto(
+    val unidades: Map<String, String>,
+    val mediaFinal: String? = null,
+    val situacao: String? = null,
+)
+
+@Serializable
+data class IndicesBaselineStateDto(
+    val ira: Double? = null,
+    val mp: Double? = null,
+    val percentualIntegralizadoExato: Double? = null,
+    val percentualIntegralizadoTexto: String? = null,
+)
+
+@Serializable
+data class SigaaNotificationBaselineDto(
+    val seededAtEpochMillis: Long = 0L,
+    val feedInitialized: Boolean = false,
+    val feedAssinaturas: Set<String> = emptySet(),
+    val avisosPorTurma: Map<String, Set<String>> = emptyMap(),
+    val materiaisPorTurma: Map<String, Set<String>> = emptyMap(),
+    val notasPorTurma: Map<String, NotasParciaisBaselineStateDto> = emptyMap(),
+    val frequenciaPorTurma: Map<String, FrequenciaBaselineStateDto> = emptyMap(),
+    val ruSaldoInitialized: Boolean = false,
+    val ruTransacoesAssinaturas: List<String> = emptyList(),
+    val lastAlertedLowRuSaldoCentavos: Long? = null,
+    val lastAlertedLowRuMeals: Int? = null,
+    val boletimInitialized: Boolean = false,
+    val boletimDisciplinas: Map<String, String> = emptyMap(),
+    val indices: IndicesBaselineStateDto? = null,
+)
+
+@Serializable
+data class SigaaSentRemindersDto(
+    val sentEpochByKey: Map<String, Long> = emptyMap(),
+)
+
+internal object SigaaNotifBaselineMappers {
+    fun toDto(m: SigaaNotificationBaseline) = SigaaNotificationBaselineDto(
+        seededAtEpochMillis = m.seededAtEpochMillis,
+        feedInitialized = m.feedInitialized,
+        feedAssinaturas = m.feedAssinaturas,
+        avisosPorTurma = m.avisosPorTurma,
+        materiaisPorTurma = m.materiaisPorTurma,
+        notasPorTurma = m.notasPorTurma.mapValues { (_, n) ->
+            NotasParciaisBaselineStateDto(
+                unidades = n.unidades,
+                mediaFinal = n.mediaFinal,
+                situacao = n.situacao,
+            )
+        },
+        frequenciaPorTurma = m.frequenciaPorTurma.mapValues { (_, f) ->
+            FrequenciaBaselineStateDto(
+                faltasComputadas = f.faltasComputadas,
+                limiteMaximoFaltas = f.limiteMaximoFaltas,
+                faltasRestantes = f.faltasRestantes,
+                emRiscoReprovacaoPorFalta = f.emRiscoReprovacaoPorFalta,
+            )
+        },
+        ruSaldoInitialized = m.ruSaldoInitialized,
+        ruTransacoesAssinaturas = m.ruTransacoesAssinaturas,
+        lastAlertedLowRuSaldoCentavos = m.lastAlertedLowRuSaldoCentavos,
+        lastAlertedLowRuMeals = m.lastAlertedLowRuMeals,
+        boletimInitialized = m.boletimInitialized,
+        boletimDisciplinas = m.boletimDisciplinas,
+        indices = m.indices?.let { idx ->
+            IndicesBaselineStateDto(
+                ira = idx.ira,
+                mp = idx.mp,
+                percentualIntegralizadoExato = idx.percentualIntegralizadoExato,
+                percentualIntegralizadoTexto = idx.percentualIntegralizadoTexto,
+            )
+        },
+    )
+
+    fun fromDto(d: SigaaNotificationBaselineDto) = SigaaNotificationBaseline(
+        seededAtEpochMillis = d.seededAtEpochMillis,
+        feedInitialized = d.feedInitialized,
+        feedAssinaturas = d.feedAssinaturas,
+        avisosPorTurma = d.avisosPorTurma,
+        materiaisPorTurma = d.materiaisPorTurma,
+        notasPorTurma = d.notasPorTurma.mapValues { (_, n) ->
+            NotasParciaisBaselineState(
+                unidades = n.unidades,
+                mediaFinal = n.mediaFinal,
+                situacao = n.situacao,
+            )
+        },
+        frequenciaPorTurma = d.frequenciaPorTurma.mapValues { (_, f) ->
+            FrequenciaBaselineState(
+                faltasComputadas = f.faltasComputadas,
+                limiteMaximoFaltas = f.limiteMaximoFaltas,
+                faltasRestantes = f.faltasRestantes,
+                emRiscoReprovacaoPorFalta = f.emRiscoReprovacaoPorFalta,
+            )
+        },
+        ruSaldoInitialized = d.ruSaldoInitialized,
+        ruTransacoesAssinaturas = d.ruTransacoesAssinaturas,
+        lastAlertedLowRuSaldoCentavos = d.lastAlertedLowRuSaldoCentavos,
+        lastAlertedLowRuMeals = d.lastAlertedLowRuMeals,
+        boletimInitialized = d.boletimInitialized,
+        boletimDisciplinas = d.boletimDisciplinas,
+        indices = d.indices?.let { idx ->
+            IndicesBaselineState(
+                ira = idx.ira,
+                mp = idx.mp,
+                percentualIntegralizadoExato = idx.percentualIntegralizadoExato,
+                percentualIntegralizadoTexto = idx.percentualIntegralizadoTexto,
+            )
+        },
+    )
+}
