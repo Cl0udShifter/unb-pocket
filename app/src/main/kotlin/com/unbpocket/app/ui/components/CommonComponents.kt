@@ -1,15 +1,20 @@
 package com.unbpocket.app.ui.components
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -84,6 +89,8 @@ import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
 import com.unbpocket.core.model.common.DataOrigin
+import com.unbpocket.core.model.common.PreloadPhase
+import com.unbpocket.core.model.common.PreloadProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -636,10 +643,12 @@ fun EmptyStateCard(
 
 @Composable
 private fun rememberSkeletonAlpha(): Float {
+    val animatorsEnabled = runCatching { ValueAnimator.areAnimatorsEnabled() }.getOrDefault(true)
+    if (!animatorsEnabled) return 0.88f
     val transition = rememberInfiniteTransition(label = "skeletonPulse")
     val alpha by transition.animateFloat(
-        initialValue = 0.42f,
-        targetValue = 0.85f,
+        initialValue = 0.62f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(
             animation = tween(durationMillis = 850),
             repeatMode = RepeatMode.Reverse,
@@ -677,6 +686,106 @@ fun SkeletonInlineBar(
         shape = CircleShape,
         color = color,
     )
+}
+
+@Composable
+fun PreloadStatusBanner(
+    progress: PreloadProgress,
+    modifier: Modifier = Modifier,
+    containerColor: Color = UnbTheme.colors.surface,
+    trackColor: Color = UnbTheme.colors.surfaceRaised,
+) {
+    val isActive = progress.phase == PreloadPhase.RUNNING_ESSENTIAL ||
+        progress.phase == PreloadPhase.RUNNING_BACKGROUND
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+
+    AnimatedVisibility(
+        visible = isActive,
+        enter = expandVertically(animationSpec = tween(180)) + fadeIn(animationSpec = tween(180)),
+        exit = shrinkVertically(animationSpec = tween(160)) + fadeOut(animationSpec = tween(140)),
+        modifier = modifier,
+    ) {
+        EditorialCard(
+            contentPadding = PaddingValues(horizontal = UnbSpacing.md, vertical = 12.dp),
+            containerColor = containerColor,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = when (progress.phase) {
+                        PreloadPhase.RUNNING_ESSENTIAL -> "SINCRONIZANDO DADOS ESSENCIAIS"
+                        PreloadPhase.RUNNING_BACKGROUND -> "CARREGANDO CACHE OFFLINE"
+                        PreloadPhase.IDLE, PreloadPhase.COMPLETED -> ""
+                    },
+                    style = typography.overline,
+                    color = colors.muted,
+                )
+                if (progress.totalSteps > 0) {
+                    Text(
+                        text = "${progress.completedSteps.coerceAtMost(progress.totalSteps)}/${progress.totalSteps}",
+                        style = typography.mono,
+                        color = colors.ink,
+                    )
+                } else {
+                    SkeletonInlineBar(
+                        width = 24.dp,
+                        height = 6.dp,
+                        color = colors.muted,
+                    )
+                }
+            }
+
+            progress.currentTarget?.takeIf { it.isNotBlank() }?.let { target ->
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = target,
+                    style = typography.label,
+                    color = colors.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            if (progress.totalSteps > 0) {
+                val targetFraction = (progress.completedSteps.toFloat() / progress.totalSteps.toFloat())
+                    .coerceIn(0.06f, 1f)
+                val animatedFraction by animateFloatAsState(
+                    targetValue = targetFraction,
+                    animationSpec = tween(durationMillis = 240, easing = FastOutSlowInEasing),
+                    label = "preloadProgressFraction",
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(trackColor),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(animatedFraction)
+                            .fillMaxHeight()
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(colors.pillActiveBg),
+                    )
+                }
+            } else {
+                SkeletonBox(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(4.dp),
+                    shape = RoundedCornerShape(2.dp),
+                    color = colors.muted.copy(alpha = 0.5f),
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

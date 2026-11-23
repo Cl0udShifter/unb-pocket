@@ -134,6 +134,8 @@ class ViewModelsTest {
         advanceUntilIdle()
 
         assertEquals("Semana em cache", vm.uiState.value.cardapio?.value?.semanaLabel)
+        assertTrue(vm.uiState.value.hasResolvedInitialMenu)
+        assertFalse(vm.uiState.value.isMenuLoading)
         assertTrue(vm.uiState.value.menuError?.canRetry == true)
 
         core.ruFake.nextRefreshCardapioResult = null
@@ -282,9 +284,28 @@ class ViewModelsTest {
 
         assertEquals(1, core.turmasFake.refreshDetalheCalls)
         assertFalse(vm.detailUiState.value.isRefreshingDetail)
+        assertFalse(vm.detailUiState.value.isLoadingDetail)
         assertNull(vm.detailUiState.value.detailError)
         assertEquals("REDES SEM FIO", vm.detailUiState.value.detalhe?.value?.nomeDisciplina)
 
         collector.cancel()
+    }
+
+    @Test
+    fun `ViewModels expose initial cache resolution flags once Room flows emit`() = runTest {
+        val core = FakeUnbPocketCore()
+        val turmasVm = TurmasViewModel(core)
+        val discenteVm = DiscenteViewModel(core)
+        val turmasCollector = backgroundScope.launch(testDispatcher) { turmasVm.listUiState.collect() }
+        val discenteCollector = backgroundScope.launch(testDispatcher) { discenteVm.uiState.collect() }
+        advanceUntilIdle()
+
+        assertTrue(turmasVm.listUiState.value.hasResolvedInitialCache)
+        assertTrue(discenteVm.uiState.value.hasResolvedInitialCache)
+        assertTrue(discenteVm.uiState.value.hasResolvedCarteirinhaCache)
+        assertTrue(discenteVm.uiState.value.hasResolvedBoletimCache)
+
+        turmasCollector.cancel()
+        discenteCollector.cancel()
     }
 }

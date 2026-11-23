@@ -76,8 +76,8 @@ import com.unbpocket.app.ui.components.HeaderActionIconButton
 import com.unbpocket.app.ui.components.InnerTile
 import com.unbpocket.app.ui.components.LocalBitmapImage
 import com.unbpocket.app.ui.components.OfflineOriginStrip
+import com.unbpocket.app.ui.components.PreloadStatusBanner
 import com.unbpocket.app.ui.components.SkeletonBox
-import com.unbpocket.app.ui.components.SkeletonCard
 import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
@@ -88,6 +88,7 @@ import com.unbpocket.app.ui.theme.UnbTheme
 import com.unbpocket.app.ui.viewmodel.AuthUiState
 import com.unbpocket.app.ui.viewmodel.DiscenteUiState
 import com.unbpocket.core.model.auth.AuthState
+import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.discente.CarteirinhaEstudantil
 import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.ru.SaldoExtratoRu
@@ -142,7 +143,20 @@ fun DiscenteScreen(
     val saldoSynced = uiState.saldoExtrato
     val saldo = saldoSynced?.value
     val carteirinha = uiState.carteirinha?.value
-    val hasDataOrAuth = resumo != null || saldo != null || uiState.authState is AuthState.Authenticated
+    val isEssentialSyncing = authUiState.isSubmittingLogin ||
+        authUiState.isSyncingAll ||
+        uiState.authState is AuthState.Reauthenticating ||
+        authUiState.preloadProgress.phase == PreloadPhase.RUNNING_ESSENTIAL
+    val isLoadingEssencial = uiState.isRefreshingProfile || isEssentialSyncing || !uiState.hasResolvedInitialCache
+    val isPreloadingCarteirinha = authUiState.preloadProgress.phase == PreloadPhase.RUNNING_BACKGROUND &&
+        authUiState.preloadProgress.currentTarget == "Carteirinha Estudantil"
+    val isLoadingQr = uiState.isRefreshingCarteirinha ||
+        (carteirinha == null && (isPreloadingCarteirinha || !uiState.hasResolvedCarteirinhaCache))
+    val hasDataOrAuth = resumo != null ||
+        saldo != null ||
+        uiState.authState is AuthState.Authenticated ||
+        isEssentialSyncing ||
+        !uiState.hasResolvedInitialCache
 
     Column(
         modifier = modifier
@@ -157,7 +171,7 @@ fun DiscenteScreen(
                         resumo.perfil.semestreAtual.takeIf { it.isNotBlank() },
                         resumo.perfil.curso.takeIf { it.isNotBlank() },
                     ).filterNotNull().joinToString(" · ")
-                    uiState.authState is AuthState.Authenticated -> "Conta SIGAA conectada"
+                    uiState.authState is AuthState.Authenticated || isEssentialSyncing -> "Conta SIGAA conectada"
                     else -> "Conecte sua conta para acessar perfil e RU"
                 }
                 Text(
@@ -178,14 +192,14 @@ fun DiscenteScreen(
                     HeaderActionIconButton(
                         icon = Icons.Rounded.Refresh,
                         contentDescription = "Atualizar perfil",
-                        isLoading = uiState.isRefreshingProfile || authUiState.isSyncingAll,
+                        isLoading = uiState.isRefreshingProfile || isEssentialSyncing,
                         onClick = onRefreshProfile,
                     )
                 }
             },
         )
 
-        if (!hasDataOrAuth && !uiState.isRefreshingProfile) {
+        if (!hasDataOrAuth) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
@@ -220,7 +234,7 @@ fun DiscenteScreen(
         }
 
         UnbPullToRefreshBox(
-            isRefreshing = uiState.isRefreshingProfile || authUiState.isSyncingAll,
+            isRefreshing = uiState.isRefreshingProfile || isEssentialSyncing,
             onRefresh = onRefreshProfile,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -234,6 +248,10 @@ fun DiscenteScreen(
                 ),
                 verticalArrangement = Arrangement.spacedBy(UnbSpacing.md),
             ) {
+                item(key = "discente_preload_banner") {
+                    PreloadStatusBanner(progress = authUiState.preloadProgress)
+                }
+
                 authUiState.syncError?.let { syncErr ->
                     item(key = "sync_err") {
                         ErrorBanner(
@@ -256,8 +274,9 @@ fun DiscenteScreen(
                     }
                 }
 
-                if (resumo == null && uiState.isRefreshingProfile) {
-                    item(key = "profile_skeleton") { SkeletonCard(lineCount = 4) }
+                if (resumo == null && isLoadingEssencial) {
+                    item(key = "identity_skeleton") { StudentIdentitySkeletonCard() }
+                    item(key = "indices_skeleton") { AcademicMetricsSkeletonCard() }
                 } else if (resumo != null) {
                     item(key = "identity_card") {
                         StudentIdentityCard(
@@ -295,7 +314,8 @@ fun DiscenteScreen(
                         carteirinha = carteirinha,
                         isFlippedToQr = uiState.isFlippedToQr,
                         boostBrightness = uiState.boostQrBrightness,
-                        isLoadingQr = uiState.isRefreshingCarteirinha,
+                        isLoadingSaldo = saldo == null && isLoadingEssencial,
+                        isLoadingQr = isLoadingQr,
                         qrError = uiState.carteirinhaError,
                         onToggleFace = onToggleQrCardFace,
                         onToggleBrightness = onToggleBrightnessBoost,
@@ -708,6 +728,165 @@ private fun AcademicMetricsCard(resumo: DiscenteResumo) {
 }
 
 @Composable
+private fun StudentIdentitySkeletonCard() {
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(UnbSpacing.md),
+        ) {
+            SkeletonBox(
+                modifier = Modifier.size(64.dp),
+                shape = CircleShape,
+            )
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                SkeletonBox(
+                    modifier = Modifier
+                        .fillMaxWidth(0.78f)
+                        .height(18.dp),
+                    shape = RoundedCornerShape(6.dp),
+                )
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(136.dp)
+                        .height(12.dp),
+                    shape = RoundedCornerShape(4.dp),
+                )
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(94.dp)
+                        .height(12.dp),
+                    shape = RoundedCornerShape(4.dp),
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(64.dp)
+                            .height(24.dp),
+                        shape = UnbShapes.tag,
+                    )
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(58.dp)
+                            .height(24.dp),
+                        shape = UnbShapes.tag,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AcademicMetricsSkeletonCard() {
+    val colors = UnbTheme.colors
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(142.dp)
+                .height(11.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(UnbSpacing.md))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(UnbSpacing.sm),
+        ) {
+            repeat(2) {
+                InnerTile(
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(UnbSpacing.md),
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        SkeletonBox(
+                            modifier = Modifier
+                                .width(64.dp)
+                                .height(11.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            color = colors.border,
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        SkeletonBox(
+                            modifier = Modifier
+                                .width(84.dp)
+                                .height(26.dp),
+                            shape = RoundedCornerShape(6.dp),
+                            color = colors.border,
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        SkeletonBox(
+                            modifier = Modifier
+                                .width(92.dp)
+                                .height(11.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            color = colors.border,
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(UnbSpacing.md))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(164.dp)
+                    .height(16.dp),
+                shape = RoundedCornerShape(5.dp),
+            )
+            SkeletonBox(
+                modifier = Modifier
+                    .width(44.dp)
+                    .height(16.dp),
+                shape = RoundedCornerShape(5.dp),
+            )
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(104.dp)
+                    .height(11.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+            SkeletonBox(
+                modifier = Modifier
+                    .width(74.dp)
+                    .height(11.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+        }
+    }
+}
+
+@Composable
 private fun NavEntryCard(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
@@ -770,6 +949,7 @@ private fun RuBalanceOrQrFlipCard(
     carteirinha: CarteirinhaEstudantil?,
     isFlippedToQr: Boolean,
     boostBrightness: Boolean,
+    isLoadingSaldo: Boolean,
     isLoadingQr: Boolean,
     qrError: com.unbpocket.app.ui.common.UiErrorBanner?,
     onToggleFace: () -> Unit,
@@ -796,6 +976,7 @@ private fun RuBalanceOrQrFlipCard(
         if (!showingBackFace) {
             RuBalanceFrontFace(
                 saldo = saldo,
+                isLoading = isLoadingSaldo,
                 onFlipToQr = onToggleFace,
             )
         } else {
@@ -817,6 +998,7 @@ private fun RuBalanceOrQrFlipCard(
 @Composable
 private fun RuBalanceFrontFace(
     saldo: SaldoExtratoRu?,
+    isLoading: Boolean,
     onFlipToQr: () -> Unit,
 ) {
     val colors = UnbTheme.colors
@@ -840,29 +1022,52 @@ private fun RuBalanceFrontFace(
         modifier = Modifier.fillMaxWidth(),
         contentPadding = PaddingValues(vertical = 22.dp, horizontal = UnbSpacing.lg),
     ) {
-        Text(
-            text = saldo?.let { Formatters.formatCentavosBrl(it.saldoAtualCentavos) } ?: "R$ -",
-            style = typography.metricBalance,
-            color = colors.ink,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center,
-        )
-        if (saldo != null) {
-            Spacer(modifier = Modifier.height(4.dp))
-            val groupLabel = "${saldo.grupoAcesso.roman} · ${saldo.grupoAcesso.descricao}"
-            val restantes = saldo.refeicoesRestantes
-            val remainingText = when {
-                restantes == null -> null
-                restantes.gratuito -> "Gratuidade ativa"
-                else -> "≈ ${restantes.almocosOuJantaresRestantes} almoço(s)/jantar(es)"
+        if (saldo == null && isLoading) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(136.dp)
+                        .height(34.dp),
+                    shape = RoundedCornerShape(8.dp),
+                    color = colors.border,
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(184.dp)
+                        .height(12.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    color = colors.border,
+                )
             }
+        } else {
             Text(
-                text = listOfNotNull(groupLabel, remainingText).joinToString(" · "),
-                style = typography.label,
-                color = colors.muted,
+                text = saldo?.let { Formatters.formatCentavosBrl(it.saldoAtualCentavos) } ?: "R$ -",
+                style = typography.metricBalance,
+                color = colors.ink,
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center,
             )
+            if (saldo != null) {
+                Spacer(modifier = Modifier.height(4.dp))
+                val groupLabel = "${saldo.grupoAcesso.roman} · ${saldo.grupoAcesso.descricao}"
+                val restantes = saldo.refeicoesRestantes
+                val remainingText = when {
+                    restantes == null -> null
+                    restantes.gratuito -> "Gratuidade ativa"
+                    else -> "≈ ${restantes.almocosOuJantaresRestantes} almoço(s)/jantar(es)"
+                }
+                Text(
+                    text = listOfNotNull(groupLabel, remainingText).joinToString(" · "),
+                    style = typography.label,
+                    color = colors.muted,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center,
+                )
+            }
         }
     }
 
@@ -889,7 +1094,58 @@ private fun RuBalanceFrontFace(
     }
 
     val transactions = saldo?.transacoesUltimos7Dias.orEmpty()
-    if (transactions.isNotEmpty()) {
+    if (saldo == null && isLoading) {
+        Spacer(modifier = Modifier.height(UnbSpacing.lg))
+        SkeletonBox(
+            modifier = Modifier
+                .width(140.dp)
+                .height(11.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(UnbSpacing.sm))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(2) {
+                InnerTile(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = UnbSpacing.md, vertical = 12.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            SkeletonBox(
+                                modifier = Modifier
+                                    .fillMaxWidth(0.62f)
+                                    .height(14.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                color = colors.border,
+                            )
+                            SkeletonBox(
+                                modifier = Modifier
+                                    .width(104.dp)
+                                    .height(11.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                color = colors.border,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(UnbSpacing.sm))
+                        SkeletonBox(
+                            modifier = Modifier
+                                .width(62.dp)
+                                .height(14.dp),
+                            shape = RoundedCornerShape(4.dp),
+                            color = colors.border,
+                        )
+                    }
+                }
+            }
+        }
+    } else if (transactions.isNotEmpty()) {
         Spacer(modifier = Modifier.height(UnbSpacing.lg))
         Text(
             text = "TRANSAÇÕES RECENTES",
@@ -1003,6 +1259,22 @@ private fun RuQrBackFace(
                     SkeletonBox(
                         modifier = Modifier.size(220.dp),
                         shape = UnbShapes.inner,
+                        color = colors.qrInk.copy(alpha = 0.14f),
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(156.dp)
+                            .height(12.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = colors.qrInk.copy(alpha = 0.14f),
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(112.dp)
+                            .height(10.dp),
+                        shape = RoundedCornerShape(4.dp),
                         color = colors.qrInk.copy(alpha = 0.14f),
                     )
                 }

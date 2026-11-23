@@ -69,6 +69,7 @@ import com.unbpocket.app.ui.components.ErrorBanner
 import com.unbpocket.app.ui.components.HairlineDivider
 import com.unbpocket.app.ui.components.InfoCalloutRow
 import com.unbpocket.app.ui.components.InnerTile
+import com.unbpocket.app.ui.components.PreloadStatusBanner
 import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
@@ -279,6 +280,10 @@ fun LoginScreen(
                 }
             }
 
+            if (uiState.isSubmittingLogin) {
+                PreloadStatusBanner(progress = uiState.preloadProgress)
+            }
+
             Text(
                 text = "O Cardápio semanal e a tabela de preços do RU continuam acessíveis sem login.",
                 style = typography.label,
@@ -370,6 +375,12 @@ fun AccountQuickSheet(
                             StatusTag(text = "ATIVO", tone = StatusTagTone.INFO)
                         }
                     }
+
+                    PreloadStatusBanner(
+                        progress = authUiState.preloadProgress,
+                        containerColor = colors.surfaceRaised,
+                        trackColor = colors.border,
+                    )
 
                     SheetActionRow(
                         icon = Icons.Rounded.School,

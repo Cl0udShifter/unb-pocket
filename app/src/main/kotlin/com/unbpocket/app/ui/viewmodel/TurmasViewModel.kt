@@ -28,6 +28,8 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -53,6 +55,7 @@ data class TurmasUiState(
     val expandedClassTurmaId: String? = null,
     val turmas: SyncedData<List<TurmaResumo>>? = null,
     val atualizacoes: SyncedData<List<AtualizacaoTurmaFeed>>? = null,
+    val hasResolvedInitialCache: Boolean = false,
     val isRefreshingList: Boolean = false,
     val listError: UiErrorBanner? = null,
 )
@@ -71,9 +74,13 @@ data class TurmaVirtualUiState(
     val loadingNoticiaId: String? = null,
     val downloadingItemId: String? = null,
     val downloadedFileEvent: ArquivoBaixado? = null,
+    val isResolvingCache: Boolean = false,
     val isRefreshingDetail: Boolean = false,
     val detailError: UiErrorBanner? = null,
-)
+) {
+    val isLoadingDetail: Boolean
+        get() = isRefreshingDetail || isResolvingCache
+}
 
 private data class TurmasListControl(
     val selectedListTab: TurmasListTab = TurmasListTab.AULAS_DO_DIA,
@@ -90,6 +97,7 @@ private data class TurmaDetailControl(
     val loadingNoticiaId: String? = null,
     val downloadingItemId: String? = null,
     val downloadedFileEvent: ArquivoBaixado? = null,
+    val isResolvingCache: Boolean = false,
     val isRefreshingDetail: Boolean = false,
     val detailError: UiErrorBanner? = null,
 )
@@ -103,12 +111,17 @@ class TurmasViewModel(
     private val activeTurmaId = MutableStateFlow<String?>(null)
     private val detailControl = MutableStateFlow(TurmaDetailControl())
 
+    private val resolvedTurmasFlow: Flow<Pair<Boolean, SyncedData<List<TurmaResumo>>?>> =
+        core.turmas.observeTurmasSemestre()
+            .map { true to it }
+            .onStart { emit(false to null) }
+
     val listUiState: StateFlow<TurmasUiState> = combine(
         core.auth.authState,
-        core.turmas.observeTurmasSemestre(),
+        resolvedTurmasFlow,
         core.turmas.observeAtualizacoesFeed(),
         listControl,
-    ) { auth, turmas, atualizacoes, ctrl ->
+    ) { auth, (hasResolvedCache, turmas), atualizacoes, ctrl ->
         TurmasUiState(
             authState = auth,
             selectedListTab = ctrl.selectedListTab,
@@ -117,6 +130,7 @@ class TurmasViewModel(
             expandedClassTurmaId = ctrl.expandedClassTurmaId,
             turmas = turmas,
             atualizacoes = atualizacoes,
+            hasResolvedInitialCache = hasResolvedCache,
             isRefreshingList = ctrl.isRefreshingList,
             listError = ctrl.listError,
         )
@@ -233,9 +247,10 @@ class TurmasViewModel(
 
     fun openTurma(frontEndIdTurma: String) {
         activeTurmaId.value = frontEndIdTurma
-        detailControl.value = TurmaDetailControl()
+        detailControl.value = TurmaDetailControl(isResolvingCache = true)
         viewModelScope.launch {
             val hasCached = core.turmas.observeTurmaDetalhe(frontEndIdTurma).first() != null
+            detailControl.update { it.copy(isResolvingCache = false) }
             refreshTurmaDetalheInternal(frontEndIdTurma, silent = hasCached)
         }
     }

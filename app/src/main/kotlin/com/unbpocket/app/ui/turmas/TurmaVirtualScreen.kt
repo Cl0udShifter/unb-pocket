@@ -57,11 +57,11 @@ import com.unbpocket.app.ui.components.InnerTile
 import com.unbpocket.app.ui.components.OfflineOriginStrip
 import com.unbpocket.app.ui.components.SegmentedPillBar
 import com.unbpocket.app.ui.components.SkeletonBox
-import com.unbpocket.app.ui.components.SkeletonCard
 import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
 import com.unbpocket.app.ui.components.UnbPullToRefreshBox
+import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
 import com.unbpocket.app.ui.viewmodel.TurmaDetailTab
@@ -146,7 +146,7 @@ fun TurmaVirtualScreen(
                 HeaderActionIconButton(
                     icon = Icons.Rounded.Refresh,
                     contentDescription = "Atualizar aba",
-                    isLoading = uiState.isRefreshingDetail,
+                    isLoading = uiState.isLoadingDetail,
                     onClick = onRefreshTab,
                 )
             },
@@ -190,8 +190,9 @@ fun TurmaVirtualScreen(
 
                 when (uiState.selectedDetailTab) {
                     TurmaDetailTab.TOPICOS -> {
-                        if (detalhe == null && uiState.isRefreshingDetail) {
-                            item(key = "topicos_skeleton") { SkeletonCard(lineCount = 5) }
+                        if (detalhe == null && uiState.isLoadingDetail) {
+                            item(key = "topicos_progress_skel") { CourseProgressSkeletonCard() }
+                            items(count = 2, key = { "topico_skel_$it" }) { TopicoSkeletonCard() }
                         } else if (detalhe == null) {
                             item(key = "topicos_empty_data") {
                                 EmptyStateCard(
@@ -230,8 +231,20 @@ fun TurmaVirtualScreen(
                     }
 
                     TurmaDetailTab.NOTICIAS -> {
-                        if (detalhe == null && uiState.isRefreshingDetail) {
-                            item(key = "noticias_skeleton") { SkeletonCard(lineCount = 5) }
+                        if (detalhe == null && uiState.isLoadingDetail) {
+                            item(key = "noticias_latest_skel") { NoticiaFullSkeletonCard() }
+                            item(key = "noticias_hist_overline_skel") {
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .padding(top = 4.dp)
+                                        .width(148.dp)
+                                        .height(11.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                )
+                            }
+                            items(count = 2, key = { "noticia_hist_skel_$it" }) {
+                                HistoricoNoticiaSkeletonCard()
+                            }
                         } else if (detalhe == null || (detalhe.ultimaNoticia == null && detalhe.historicoNoticiasResumo.isEmpty())) {
                             item(key = "noticias_empty") {
                                 EmptyStateCard(
@@ -346,8 +359,19 @@ fun TurmaVirtualScreen(
 
                     TurmaDetailTab.FREQUENCIA -> {
                         val freq = uiState.frequencia?.value
-                        if (freq == null && uiState.isRefreshingDetail) {
-                            item(key = "freq_skeleton") { SkeletonCard(lineCount = 5) }
+                        if (freq == null && uiState.isLoadingDetail) {
+                            item(key = "freq_summary_skel") { FrequenciaSummarySkeletonCard() }
+                            item(key = "freq_overline_skel") {
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .width(136.dp)
+                                        .height(11.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                )
+                            }
+                            items(count = 3, key = { "freq_row_skel_$it" }) {
+                                FrequenciaDiaSkeletonCard()
+                            }
                         } else if (freq == null) {
                             item(key = "freq_empty") {
                                 EmptyStateCard(
@@ -416,16 +440,32 @@ fun TurmaVirtualScreen(
 
                     TurmaDetailTab.NOTAS_AVALIACOES -> {
                         val notas = uiState.notasParciais?.value
-                        val avaliacoes = uiState.avaliacoes?.value.orEmpty()
-                        val tarefas = uiState.tarefas?.value.orEmpty()
+                        val avaliacoesSynced = uiState.avaliacoes
+                        val tarefasSynced = uiState.tarefas
+                        val avaliacoes = avaliacoesSynced?.value.orEmpty()
+                        val tarefas = tarefasSynced?.value.orEmpty()
 
-                        if (notas == null && uiState.avaliacoes == null && uiState.tarefas == null && uiState.isRefreshingDetail) {
-                            item(key = "notas_skeleton") { SkeletonCard(lineCount = 5) }
+                        if (notas == null && uiState.isLoadingDetail) {
+                            item(key = "notas_parciais_skel") { NotasParciaisSkeletonCard() }
                         } else {
                             item(key = "notas_parciais_card") {
                                 NotasParciaisSectionCard(notas = notas)
                             }
+                        }
 
+                        if (avaliacoesSynced == null && uiState.isLoadingDetail) {
+                            item(key = "aval_overline_skel") {
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .width(104.dp)
+                                        .height(11.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                )
+                            }
+                            items(count = 2, key = { "aval_skel_$it" }) {
+                                AvaliacaoSkeletonCard()
+                            }
+                        } else {
                             item(key = "avaliacoes_overline") {
                                 Text(
                                     text = "AVALIAÇÕES (${avaliacoes.size})",
@@ -446,7 +486,21 @@ fun TurmaVirtualScreen(
                                     AvaliacaoCard(aval = aval)
                                 }
                             }
+                        }
 
+                        if (tarefasSynced == null && uiState.isLoadingDetail) {
+                            item(key = "tarefas_overline_skel") {
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .width(92.dp)
+                                        .height(11.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                )
+                            }
+                            items(count = 2, key = { "tarefa_skel_$it" }) {
+                                TarefaSkeletonCard()
+                            }
+                        } else {
                             item(key = "tarefas_overline") {
                                 Text(
                                     text = "TAREFAS (${tarefas.size})",
@@ -960,6 +1014,320 @@ private fun TarefaCard(tarefa: TarefaTurma) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 tags.forEach { tag -> StatusTag(text = tag) }
             }
+        }
+    }
+}
+
+@Composable
+private fun CourseProgressSkeletonCard() {
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(128.dp)
+                    .height(11.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+            SkeletonBox(
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(11.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(8.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+    }
+}
+
+@Composable
+private fun TopicoSkeletonCard() {
+    val colors = UnbTheme.colors
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(102.dp)
+                .height(22.dp),
+            shape = UnbShapes.tag,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.76f)
+                .height(18.dp),
+            shape = RoundedCornerShape(5.dp),
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .height(14.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        InnerTile(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SkeletonBox(
+                    modifier = Modifier
+                        .fillMaxWidth(0.68f)
+                        .height(14.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    color = colors.border,
+                )
+                SkeletonBox(
+                    modifier = Modifier.size(18.dp),
+                    shape = RoundedCornerShape(4.dp),
+                    color = colors.border,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoticiaFullSkeletonCard() {
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(106.dp)
+                .height(22.dp),
+            shape = UnbShapes.tag,
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.84f)
+                .height(18.dp),
+            shape = RoundedCornerShape(5.dp),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .width(142.dp)
+                .height(12.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        HairlineDivider()
+        Spacer(modifier = Modifier.height(12.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.94f)
+                .height(14.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .height(14.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+    }
+}
+
+@Composable
+private fun HistoricoNoticiaSkeletonCard() {
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(96.dp)
+                .height(12.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+                .height(16.dp),
+            shape = RoundedCornerShape(5.dp),
+        )
+    }
+}
+
+@Composable
+private fun FrequenciaSummarySkeletonCard() {
+    val colors = UnbTheme.colors
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(136.dp)
+                .height(11.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(UnbSpacing.md))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            repeat(2) {
+                InnerTile(modifier = Modifier.weight(1f)) {
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(68.dp)
+                            .height(11.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = colors.border,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(74.dp)
+                            .height(26.dp),
+                        shape = RoundedCornerShape(6.dp),
+                        color = colors.border,
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(82.dp)
+                            .height(11.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = colors.border,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FrequenciaDiaSkeletonCard() {
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(116.dp)
+                        .height(16.dp),
+                    shape = RoundedCornerShape(5.dp),
+                )
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(148.dp)
+                        .height(12.dp),
+                    shape = RoundedCornerShape(4.dp),
+                )
+            }
+            SkeletonBox(
+                modifier = Modifier
+                    .width(72.dp)
+                    .height(24.dp),
+                shape = UnbShapes.tag,
+            )
+        }
+    }
+}
+
+@Composable
+private fun NotasParciaisSkeletonCard() {
+    val colors = UnbTheme.colors
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(118.dp)
+                .height(11.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(UnbSpacing.md))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(3) {
+                InnerTile(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SkeletonBox(
+                            modifier = Modifier
+                                .width(112.dp)
+                                .height(16.dp),
+                            shape = RoundedCornerShape(5.dp),
+                            color = colors.border,
+                        )
+                        SkeletonBox(
+                            modifier = Modifier
+                                .width(42.dp)
+                                .height(16.dp),
+                            shape = RoundedCornerShape(5.dp),
+                            color = colors.border,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun AvaliacaoSkeletonCard() {
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(108.dp)
+                .height(22.dp),
+            shape = UnbShapes.tag,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.74f)
+                .height(16.dp),
+            shape = RoundedCornerShape(5.dp),
+        )
+    }
+}
+
+@Composable
+private fun TarefaSkeletonCard() {
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.72f)
+                .height(16.dp),
+            shape = RoundedCornerShape(5.dp),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .width(156.dp)
+                .height(12.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(68.dp)
+                    .height(22.dp),
+                shape = UnbShapes.tag,
+            )
+            SkeletonBox(
+                modifier = Modifier
+                    .width(82.dp)
+                    .height(22.dp),
+                shape = UnbShapes.tag,
+            )
         }
     }
 }

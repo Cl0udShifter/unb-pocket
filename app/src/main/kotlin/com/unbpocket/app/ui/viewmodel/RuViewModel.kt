@@ -16,6 +16,7 @@ import com.unbpocket.core.model.ru.RuPreferencias
 import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.model.ru.TipoRefeicao
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -31,6 +33,7 @@ import java.util.Calendar
 data class RuUiState(
     val preferencias: RuPreferencias = RuPreferencias(),
     val cardapio: SyncedData<CardapioSemanalRu>? = null,
+    val hasResolvedInitialMenu: Boolean = false,
     val tabelaPrecos: SyncedData<TabelaPrecosRu>? = null,
     val noticias: SyncedData<List<NoticiaRu>>? = null,
     val selectedDayIndex: Int = 0,
@@ -44,7 +47,10 @@ data class RuUiState(
     val isCampusSheetOpen: Boolean = false,
     val isAllergenSheetOpen: Boolean = false,
     val isNoticesAndPricesSheetOpen: Boolean = false,
-)
+) {
+    val isMenuLoading: Boolean
+        get() = cardapio == null && (isRefreshingMenu || !hasResolvedInitialMenu)
+}
 
 private data class RuControlState(
     val selectedDayIndex: Int? = null,
@@ -70,20 +76,22 @@ class RuViewModel(
 
     private val preferenciasFlow = core.ru.observePreferencias()
 
-    private val cardapioFlow = preferenciasFlow
+    private val resolvedCardapioFlow: Flow<Pair<Boolean, SyncedData<CardapioSemanalRu>?>> = preferenciasFlow
         .map { it.campusSelecionado }
         .distinctUntilChanged()
         .flatMapLatest { campus ->
             core.ru.observeCardapio(campus)
+                .map { true to it }
+                .onStart { emit(false to null) }
         }
 
     val uiState: StateFlow<RuUiState> = combine(
         preferenciasFlow,
-        cardapioFlow,
+        resolvedCardapioFlow,
         core.ru.observeTabelaPrecos(),
         core.ru.observeNoticias(),
         controlState,
-    ) { prefs, cardapio, precos, noticias, ctrl ->
+    ) { prefs, (hasResolvedMenu, cardapio), precos, noticias, ctrl ->
         val dias = cardapio?.value?.dias.orEmpty()
         val resolvedDayIndex = when {
             dias.isEmpty() -> 0
@@ -94,6 +102,7 @@ class RuViewModel(
         RuUiState(
             preferencias = prefs,
             cardapio = cardapio,
+            hasResolvedInitialMenu = hasResolvedMenu,
             tabelaPrecos = precos,
             noticias = noticias,
             selectedDayIndex = resolvedDayIndex,

@@ -49,6 +49,7 @@ import com.unbpocket.app.ui.viewmodel.RuViewModel
 import com.unbpocket.app.ui.viewmodel.TurmasViewModel
 import com.unbpocket.app.ui.viewmodel.UnbViewModelFactory
 import com.unbpocket.core.model.auth.AuthState
+import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.contract.UnbPocketCore
 
 private object AppRoutes {
@@ -251,12 +252,14 @@ private fun UnbNavHost(
                 turmasUiState.turmas == null,
                 authUiState.isSubmittingLogin,
                 authUiState.isSyncingAll,
+                authUiState.preloadProgress.phase,
             ) {
                 if (authUiState.authState is AuthState.Authenticated &&
                     turmasUiState.turmas == null &&
                     !turmasUiState.isRefreshingList &&
                     !authUiState.isSubmittingLogin &&
-                    !authUiState.isSyncingAll
+                    !authUiState.isSyncingAll &&
+                    authUiState.preloadProgress.phase != PreloadPhase.RUNNING_ESSENTIAL
                 ) {
                     turmasViewModel.refreshSemestre()
                 }
@@ -264,6 +267,7 @@ private fun UnbNavHost(
 
             TurmasScreen(
                 uiState = turmasUiState,
+                authUiState = authUiState,
                 bottomContentPadding = bottomContentPadding,
                 onSelectListTab = turmasViewModel::selectListTab,
                 onSelectDay = turmasViewModel::selectDay,
@@ -284,12 +288,14 @@ private fun UnbNavHost(
                 discenteUiState.discenteResumo == null,
                 authUiState.isSubmittingLogin,
                 authUiState.isSyncingAll,
+                authUiState.preloadProgress.phase,
             ) {
                 if (authUiState.authState is AuthState.Authenticated &&
                     discenteUiState.discenteResumo == null &&
                     !discenteUiState.isRefreshingProfile &&
                     !authUiState.isSubmittingLogin &&
-                    !authUiState.isSyncingAll
+                    !authUiState.isSyncingAll &&
+                    authUiState.preloadProgress.phase != PreloadPhase.RUNNING_ESSENTIAL
                 ) {
                     discenteViewModel.refreshProfileAndSaldo()
                 }
@@ -368,12 +374,14 @@ private fun UnbNavHost(
                 discenteUiState.boletim == null,
                 authUiState.isSubmittingLogin,
                 authUiState.isSyncingAll,
+                authUiState.preloadProgress.phase,
             ) {
                 if (authUiState.authState is AuthState.Authenticated &&
                     discenteUiState.boletim == null &&
                     !discenteUiState.isRefreshingBoletim &&
                     !authUiState.isSubmittingLogin &&
-                    !authUiState.isSyncingAll
+                    !authUiState.isSyncingAll &&
+                    authUiState.preloadProgress.phase != PreloadPhase.RUNNING_ESSENTIAL
                 ) {
                     discenteViewModel.refreshBoletim()
                 }
@@ -381,6 +389,7 @@ private fun UnbNavHost(
 
             BoletimScreen(
                 uiState = discenteUiState,
+                authUiState = authUiState,
                 onBack = { navController.popBackStack() },
                 onRefresh = discenteViewModel::refreshBoletim,
                 onOpenLogin = onOpenLogin,

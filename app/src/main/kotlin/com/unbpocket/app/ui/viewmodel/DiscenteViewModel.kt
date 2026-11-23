@@ -18,6 +18,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -29,6 +31,9 @@ data class DiscenteUiState(
     val carteirinha: SyncedData<CarteirinhaEstudantil>? = null,
     val boletim: SyncedData<List<BoletimSemestre>>? = null,
     val documentosEmitidos: List<DocumentoOficialEmitido> = emptyList(),
+    val hasResolvedInitialCache: Boolean = false,
+    val hasResolvedCarteirinhaCache: Boolean = false,
+    val hasResolvedBoletimCache: Boolean = false,
     val isFlippedToQr: Boolean = false,
     val boostQrBrightness: Boolean = true,
     val isRefreshingProfile: Boolean = false,
@@ -62,36 +67,51 @@ class DiscenteViewModel(
 
     private val controlState = MutableStateFlow(DiscenteControlState())
 
+    private val resolvedResumoFlow = core.discente.observeDiscenteResumo()
+        .map { true to it }
+        .onStart { emit(false to null) }
+
+    private val resolvedCarteirinhaFlow = core.discente.observeCarteirinha()
+        .map { true to it }
+        .onStart { emit(false to null) }
+
+    private val resolvedBoletimFlow = core.discente.observeBoletimGeral()
+        .map { true to it }
+        .onStart { emit(false to null) }
+
     val uiState: StateFlow<DiscenteUiState> = combine(
         core.auth.authState,
-        core.discente.observeDiscenteResumo(),
+        resolvedResumoFlow,
         core.ru.observeSaldoExtrato(),
-        core.discente.observeCarteirinha(),
-        core.discente.observeBoletimGeral(),
+        resolvedCarteirinhaFlow,
+        resolvedBoletimFlow,
         core.discente.observeDocumentosEmitidos(),
         controlState,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
         val auth = values[0] as AuthState
         @Suppress("UNCHECKED_CAST")
-        val resumo = values[1] as SyncedData<DiscenteResumo>?
+        val resolvedResumo = values[1] as Pair<Boolean, SyncedData<DiscenteResumo>?>
         @Suppress("UNCHECKED_CAST")
         val saldo = values[2] as SyncedData<SaldoExtratoRu>?
         @Suppress("UNCHECKED_CAST")
-        val carteirinha = values[3] as SyncedData<CarteirinhaEstudantil>?
+        val resolvedCarteirinha = values[3] as Pair<Boolean, SyncedData<CarteirinhaEstudantil>?>
         @Suppress("UNCHECKED_CAST")
-        val boletim = values[4] as SyncedData<List<BoletimSemestre>>?
+        val resolvedBoletim = values[4] as Pair<Boolean, SyncedData<List<BoletimSemestre>>?>
         @Suppress("UNCHECKED_CAST")
         val docs = values[5] as List<DocumentoOficialEmitido>
         val ctrl = values[6] as DiscenteControlState
 
         DiscenteUiState(
             authState = auth,
-            discenteResumo = resumo,
+            discenteResumo = resolvedResumo.second,
             saldoExtrato = saldo,
-            carteirinha = carteirinha,
-            boletim = boletim,
+            carteirinha = resolvedCarteirinha.second,
+            boletim = resolvedBoletim.second,
             documentosEmitidos = docs,
+            hasResolvedInitialCache = resolvedResumo.first,
+            hasResolvedCarteirinhaCache = resolvedCarteirinha.first,
+            hasResolvedBoletimCache = resolvedBoletim.first,
             isFlippedToQr = ctrl.isFlippedToQr,
             boostQrBrightness = ctrl.boostQrBrightness,
             isRefreshingProfile = ctrl.isRefreshingProfile,

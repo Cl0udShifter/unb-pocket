@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.outlined.LocationOn
@@ -63,17 +64,20 @@ import com.unbpocket.app.ui.components.ErrorBanner
 import com.unbpocket.app.ui.components.HairlineDivider
 import com.unbpocket.app.ui.components.HeaderActionIconButton
 import com.unbpocket.app.ui.components.OfflineOriginStrip
+import com.unbpocket.app.ui.components.PreloadStatusBanner
 import com.unbpocket.app.ui.components.SegmentedPillBar
-import com.unbpocket.app.ui.components.SkeletonCard
+import com.unbpocket.app.ui.components.SkeletonBox
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
 import com.unbpocket.app.ui.components.UnbPullToRefreshBox
 import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
+import com.unbpocket.app.ui.viewmodel.AuthUiState
 import com.unbpocket.app.ui.viewmodel.TurmasListTab
 import com.unbpocket.app.ui.viewmodel.TurmasUiState
 import com.unbpocket.core.model.auth.AuthState
+import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.turmas.AtualizacaoTurmaFeed
 import com.unbpocket.core.model.turmas.DiaSemanaSigaa
 import com.unbpocket.core.model.turmas.TurmaResumo
@@ -82,6 +86,7 @@ import java.util.Calendar
 @Composable
 fun TurmasScreen(
     uiState: TurmasUiState,
+    authUiState: AuthUiState,
     bottomContentPadding: Dp,
     onSelectListTab: (TurmasListTab) -> Unit,
     onSelectDay: (DiaSemanaSigaa) -> Unit,
@@ -101,7 +106,15 @@ fun TurmasScreen(
     val semestreHeader = remember(turmasList) {
         turmasList.firstOrNull { it.semestre.isNotBlank() }?.semestre
     }
-    val hasOfflineOrAuthData = turmasList.isNotEmpty() || uiState.authState is AuthState.Authenticated
+    val isEssentialSyncing = authUiState.isSubmittingLogin ||
+        authUiState.isSyncingAll ||
+        uiState.authState is AuthState.Reauthenticating ||
+        authUiState.preloadProgress.phase == PreloadPhase.RUNNING_ESSENTIAL
+    val isLoadingList = uiState.isRefreshingList || isEssentialSyncing || !uiState.hasResolvedInitialCache
+    val hasOfflineOrAuthData = turmasList.isNotEmpty() ||
+        uiState.authState is AuthState.Authenticated ||
+        isEssentialSyncing ||
+        !uiState.hasResolvedInitialCache
 
     Column(
         modifier = modifier
@@ -113,7 +126,7 @@ fun TurmasScreen(
             subtitle = {
                 val subtitleText = when {
                     semestreHeader != null -> "Semestre $semestreHeader · Horário Oficial"
-                    uiState.authState is AuthState.Authenticated -> "Semestre Atual · SIGAA"
+                    uiState.authState is AuthState.Authenticated || isEssentialSyncing -> "Semestre Atual · SIGAA"
                     else -> "Conecte sua conta SIGAA para sincronizar"
                 }
                 Text(
@@ -125,11 +138,11 @@ fun TurmasScreen(
                 )
             },
             actions = {
-                if (uiState.authState is AuthState.Authenticated) {
+                if (uiState.authState is AuthState.Authenticated || isEssentialSyncing) {
                     HeaderActionIconButton(
                         icon = Icons.Rounded.Refresh,
                         contentDescription = "Atualizar turmas",
-                        isLoading = uiState.isRefreshingList,
+                        isLoading = uiState.isRefreshingList || isEssentialSyncing,
                         onClick = onRefresh,
                     )
                 }
@@ -146,7 +159,7 @@ fun TurmasScreen(
             },
         )
 
-        if (!hasOfflineOrAuthData && !uiState.isRefreshingList) {
+        if (!hasOfflineOrAuthData) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(
@@ -181,7 +194,7 @@ fun TurmasScreen(
         }
 
         UnbPullToRefreshBox(
-            isRefreshing = uiState.isRefreshingList,
+            isRefreshing = uiState.isRefreshingList || isEssentialSyncing,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -221,6 +234,10 @@ fun TurmasScreen(
                     }
                 }
 
+                item(key = "turmas_preload_banner") {
+                    PreloadStatusBanner(progress = authUiState.preloadProgress)
+                }
+
                 item(key = "list_tabs") {
                     SegmentedPillBar(
                         options = listOf("Aulas do Dia", "Turmas", "Avisos"),
@@ -242,8 +259,20 @@ fun TurmasScreen(
                         }
 
                         when {
-                            uiState.turmas == null && uiState.isRefreshingList -> {
-                                item(key = "turmas_skeleton") { SkeletonCard(lineCount = 5) }
+                            uiState.turmas == null && isLoadingList -> {
+                                item(key = "turmas_focus_skeleton") { FocusClassHeroSkeletonCard() }
+                                item(key = "turmas_overline_skeleton") {
+                                    SkeletonBox(
+                                        modifier = Modifier
+                                            .padding(top = 4.dp)
+                                            .width(124.dp)
+                                            .height(11.dp),
+                                        shape = RoundedCornerShape(4.dp),
+                                    )
+                                }
+                                items(count = 2, key = { "turmas_row_skel_$it" }) {
+                                    ScheduledClassSkeletonCard()
+                                }
                             }
 
                             turmasList.isEmpty() -> {
@@ -311,8 +340,10 @@ fun TurmasScreen(
                     }
 
                     TurmasListTab.TURMAS_SEMESTRE -> {
-                        if (uiState.turmas == null && uiState.isRefreshingList) {
-                            item(key = "semestre_skeleton") { SkeletonCard(lineCount = 5) }
+                        if (uiState.turmas == null && isLoadingList) {
+                            items(count = 3, key = { "semestre_skel_$it" }) {
+                                SemesterTurmaSkeletonCard()
+                            }
                         } else if (turmasList.isEmpty()) {
                             item(key = "semestre_empty") {
                                 EmptyStateCard(
@@ -337,7 +368,11 @@ fun TurmasScreen(
                     }
 
                     TurmasListTab.ATUALIZACOES -> {
-                        if (atualizacoes.isEmpty()) {
+                        if (uiState.atualizacoes == null && isLoadingList) {
+                            items(count = 3, key = { "feed_skel_$it" }) {
+                                FeedUpdateSkeletonCard()
+                            }
+                        } else if (atualizacoes.isEmpty()) {
                             item(key = "feed_empty") {
                                 EmptyStateCard(
                                     icon = Icons.Rounded.NotificationsNone,
@@ -809,6 +844,187 @@ private fun TurmaFeedUpdateCard(
             text = item.tituloNoticia,
             style = typography.title,
             color = colors.ink,
+        )
+    }
+}
+
+@Composable
+private fun FocusClassHeroSkeletonCard() {
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(142.dp)
+                    .height(14.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+            SkeletonBox(
+                modifier = Modifier
+                    .width(64.dp)
+                    .height(14.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+        }
+        Spacer(modifier = Modifier.height(UnbSpacing.sm))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.78f)
+                .height(20.dp),
+            shape = RoundedCornerShape(6.dp),
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.56f)
+                .height(14.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(UnbSpacing.md))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(120.dp)
+                    .height(12.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+            SkeletonBox(
+                modifier = Modifier
+                    .width(92.dp)
+                    .height(12.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScheduledClassSkeletonCard() {
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(114.dp)
+                    .height(16.dp),
+                shape = RoundedCornerShape(5.dp),
+            )
+            SkeletonBox(
+                modifier = Modifier.size(20.dp),
+                shape = CircleShape,
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.82f)
+                .height(18.dp),
+            shape = RoundedCornerShape(6.dp),
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.6f)
+                .height(14.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+    }
+}
+
+@Composable
+private fun SemesterTurmaSkeletonCard() {
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(72.dp)
+                        .height(24.dp),
+                    shape = UnbShapes.tag,
+                )
+                SkeletonBox(
+                    modifier = Modifier
+                        .width(36.dp)
+                        .height(24.dp),
+                    shape = UnbShapes.tag,
+                )
+            }
+            SkeletonBox(
+                modifier = Modifier.size(18.dp),
+                shape = CircleShape,
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.84f)
+                .height(18.dp),
+            shape = RoundedCornerShape(6.dp),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.5f)
+                .height(12.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(10.dp))
+        HairlineDivider()
+        Spacer(modifier = Modifier.height(10.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.68f)
+                .height(13.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+    }
+}
+
+@Composable
+private fun FeedUpdateSkeletonCard() {
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(96.dp)
+                    .height(24.dp),
+                shape = UnbShapes.tag,
+            )
+            SkeletonBox(
+                modifier = Modifier.size(18.dp),
+                shape = CircleShape,
+            )
+        }
+        Spacer(modifier = Modifier.height(10.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.55f)
+                .height(12.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        SkeletonBox(
+            modifier = Modifier
+                .fillMaxWidth(0.88f)
+                .height(17.dp),
+            shape = RoundedCornerShape(5.dp),
         )
     }
 }

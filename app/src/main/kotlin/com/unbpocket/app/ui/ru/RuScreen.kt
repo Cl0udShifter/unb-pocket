@@ -92,7 +92,7 @@ import com.unbpocket.app.ui.components.InnerTile
 import com.unbpocket.app.ui.components.OfflineOriginStrip
 import com.unbpocket.app.ui.components.RemoteBitmapImage
 import com.unbpocket.app.ui.components.SegmentedPillBar
-import com.unbpocket.app.ui.components.SkeletonCard
+import com.unbpocket.app.ui.components.SkeletonBox
 import com.unbpocket.app.ui.components.SkeletonInlineBar
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
@@ -142,6 +142,7 @@ fun RuScreen(
     val cardapio = cardapioSynced?.value
     val dias = cardapio?.dias.orEmpty()
     val selectedDay = dias.getOrNull(uiState.selectedDayIndex)
+    val isLoadingMenu = uiState.isMenuLoading
 
     Column(
         modifier = modifier
@@ -215,17 +216,21 @@ fun RuScreen(
             },
         )
 
-        if (dias.isNotEmpty()) {
+        if (dias.isNotEmpty() || isLoadingMenu) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = UnbSpacing.lg, vertical = UnbSpacing.xs),
             ) {
-                RuDayChipsStrip(
-                    dias = dias,
-                    selectedIndex = uiState.selectedDayIndex,
-                    onSelectDay = onSelectDay,
-                )
+                if (dias.isNotEmpty()) {
+                    RuDayChipsStrip(
+                        dias = dias,
+                        selectedIndex = uiState.selectedDayIndex,
+                        onSelectDay = onSelectDay,
+                    )
+                } else {
+                    RuDayChipsSkeletonStrip()
+                }
             }
         }
 
@@ -274,8 +279,8 @@ fun RuScreen(
 
                 item(key = "menu_content") {
                     when {
-                        cardapio == null && uiState.isRefreshingMenu -> {
-                            SkeletonCard(lineCount = 6)
+                        isLoadingMenu -> {
+                            RuMenuSkeletonCard()
                         }
 
                         cardapio == null -> {
@@ -451,6 +456,149 @@ private fun RuDayChipsStrip(
                     onClick = { onSelectDay(index) },
                     modifier = Modifier.widthIn(min = 54.dp),
                 )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuDayChipsSkeletonStrip() {
+    val colors = UnbTheme.colors
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        repeat(7) {
+            Surface(
+                modifier = Modifier
+                    .weight(1f)
+                    .defaultMinSize(minHeight = 60.dp),
+                shape = UnbShapes.inner,
+                color = colors.surface,
+                border = BorderStroke(1.dp, colors.border),
+                shadowElevation = 0.dp,
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(24.dp)
+                            .height(10.dp),
+                        shape = RoundedCornerShape(3.dp),
+                    )
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(20.dp)
+                            .height(16.dp),
+                        shape = RoundedCornerShape(4.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuMenuSkeletonCard() {
+    EditorialCard {
+        SkeletonBox(
+            modifier = Modifier
+                .width(128.dp)
+                .height(11.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(0.76f, 0.58f, 0.72f).forEach { fraction ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(76.dp)
+                            .height(26.dp),
+                        shape = UnbShapes.tag,
+                    )
+                    SkeletonBox(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(16.dp),
+                        shape = RoundedCornerShape(6.dp),
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(UnbSpacing.lg))
+        HairlineDivider()
+        Spacer(modifier = Modifier.height(UnbSpacing.lg))
+
+        SkeletonBox(
+            modifier = Modifier
+                .width(164.dp)
+                .height(11.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(0.82f, 0.54f).forEach { fraction ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(76.dp)
+                            .height(14.dp),
+                        shape = RoundedCornerShape(4.dp),
+                    )
+                    SkeletonBox(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(15.dp),
+                        shape = RoundedCornerShape(5.dp),
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(UnbSpacing.lg))
+        HairlineDivider()
+        Spacer(modifier = Modifier.height(UnbSpacing.lg))
+
+        SkeletonBox(
+            modifier = Modifier
+                .width(116.dp)
+                .height(11.dp),
+            shape = RoundedCornerShape(4.dp),
+        )
+        Spacer(modifier = Modifier.height(12.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            listOf(0.68f, 0.74f, 0.46f).forEach { fraction ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SkeletonBox(
+                        modifier = Modifier
+                            .width(76.dp)
+                            .height(14.dp),
+                        shape = RoundedCornerShape(4.dp),
+                    )
+                    SkeletonBox(
+                        modifier = Modifier
+                            .fillMaxWidth(fraction)
+                            .height(15.dp),
+                        shape = RoundedCornerShape(5.dp),
+                    )
+                }
             }
         }
     }
@@ -1128,7 +1276,39 @@ private fun NoticesAndPricesBottomSheet(
                 if (tabIndex == 0) {
                     if (notices.isEmpty() && isLoading) {
                         items(count = 3, key = { "ru_notice_skel_$it" }) {
-                            SkeletonCard(lineCount = 3)
+                            InnerTile(modifier = Modifier.fillMaxWidth()) {
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.84f)
+                                        .height(16.dp),
+                                    shape = RoundedCornerShape(5.dp),
+                                    color = colors.border,
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .width(88.dp)
+                                        .height(11.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = colors.border,
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.95f)
+                                        .height(13.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = colors.border,
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.65f)
+                                        .height(13.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = colors.border,
+                                )
+                            }
                         }
                     } else if (notices.isEmpty()) {
                         item(key = "notices_empty") {
@@ -1181,8 +1361,51 @@ private fun NoticesAndPricesBottomSheet(
                     }
                 } else {
                     if (tabelaPrecos == null && isLoading) {
-                        item(key = "prices_skel") {
-                            SkeletonCard(lineCount = 4)
+                        items(count = 3, key = { "prices_skel_$it" }) {
+                            InnerTile(modifier = Modifier.fillMaxWidth()) {
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.56f)
+                                        .height(16.dp),
+                                    shape = RoundedCornerShape(5.dp),
+                                    color = colors.border,
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                SkeletonBox(
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.74f)
+                                        .height(12.dp),
+                                    shape = RoundedCornerShape(4.dp),
+                                    color = colors.border,
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    repeat(3) {
+                                        Column(
+                                            modifier = Modifier.weight(1f),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                                        ) {
+                                            SkeletonBox(
+                                                modifier = Modifier
+                                                    .width(44.dp)
+                                                    .height(10.dp),
+                                                shape = RoundedCornerShape(3.dp),
+                                                color = colors.border,
+                                            )
+                                            SkeletonBox(
+                                                modifier = Modifier
+                                                    .width(56.dp)
+                                                    .height(14.dp),
+                                                shape = RoundedCornerShape(4.dp),
+                                                color = colors.border,
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     } else if (tabelaPrecos == null) {
                         item(key = "prices_empty") {

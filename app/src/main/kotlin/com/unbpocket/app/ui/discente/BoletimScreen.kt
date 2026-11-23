@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
@@ -30,19 +31,24 @@ import com.unbpocket.app.ui.components.ErrorBanner
 import com.unbpocket.app.ui.components.HeaderActionIconButton
 import com.unbpocket.app.ui.components.InnerTile
 import com.unbpocket.app.ui.components.OfflineOriginStrip
-import com.unbpocket.app.ui.components.SkeletonCard
+import com.unbpocket.app.ui.components.PreloadStatusBanner
+import com.unbpocket.app.ui.components.SkeletonBox
 import com.unbpocket.app.ui.components.StatusTag
 import com.unbpocket.app.ui.components.StatusTagTone
 import com.unbpocket.app.ui.components.UnbPullToRefreshBox
+import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
+import com.unbpocket.app.ui.viewmodel.AuthUiState
 import com.unbpocket.app.ui.viewmodel.DiscenteUiState
+import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.discente.BoletimSemestre
 import com.unbpocket.core.model.discente.NotaDisciplinaBoletim
 
 @Composable
 fun BoletimScreen(
     uiState: DiscenteUiState,
+    authUiState: AuthUiState,
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onOpenLogin: () -> Unit,
@@ -52,6 +58,14 @@ fun BoletimScreen(
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
     val semestres = uiState.boletim?.value.orEmpty()
+    val isPreloadingBoletim = authUiState.preloadProgress.phase == PreloadPhase.RUNNING_ESSENTIAL ||
+        (authUiState.preloadProgress.phase == PreloadPhase.RUNNING_BACKGROUND &&
+            authUiState.preloadProgress.currentTarget == "Boletim Geral")
+    val isLoadingBoletim = uiState.isRefreshingBoletim ||
+        authUiState.isSyncingAll ||
+        authUiState.isSubmittingLogin ||
+        isPreloadingBoletim ||
+        !uiState.hasResolvedBoletimCache
 
     Column(
         modifier = modifier
@@ -74,14 +88,14 @@ fun BoletimScreen(
                 HeaderActionIconButton(
                     icon = Icons.Rounded.Refresh,
                     contentDescription = "Atualizar boletim",
-                    isLoading = uiState.isRefreshingBoletim,
+                    isLoading = uiState.isRefreshingBoletim || isPreloadingBoletim,
                     onClick = onRefresh,
                 )
             },
         )
 
         UnbPullToRefreshBox(
-            isRefreshing = uiState.isRefreshingBoletim,
+            isRefreshing = uiState.isRefreshingBoletim || isPreloadingBoletim,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize(),
         ) {
@@ -108,8 +122,14 @@ fun BoletimScreen(
                     }
                 }
 
-                if (uiState.boletim == null && uiState.isRefreshingBoletim) {
-                    item(key = "boletim_skeleton") { SkeletonCard(lineCount = 6) }
+                item(key = "boletim_preload_banner") {
+                    PreloadStatusBanner(progress = authUiState.preloadProgress)
+                }
+
+                if (uiState.boletim == null && isLoadingBoletim) {
+                    items(count = 2, key = { "boletim_skel_$it" }) {
+                        BoletimSemestreSkeletonCard()
+                    }
                 } else if (semestres.isEmpty()) {
                     item(key = "boletim_empty") {
                         EmptyStateCard(
@@ -224,6 +244,79 @@ private fun BoletimDisciplinaTile(disc: NotaDisciplinaBoletim) {
                 style = typography.label,
                 color = colors.muted,
             )
+        }
+    }
+}
+
+@Composable
+private fun BoletimSemestreSkeletonCard() {
+    val colors = UnbTheme.colors
+    EditorialCard {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SkeletonBox(
+                modifier = Modifier
+                    .width(124.dp)
+                    .height(11.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+            SkeletonBox(
+                modifier = Modifier
+                    .width(84.dp)
+                    .height(11.dp),
+                shape = RoundedCornerShape(4.dp),
+            )
+        }
+        Spacer(modifier = Modifier.height(UnbSpacing.md))
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(0.76f, 0.64f, 0.82f).forEach { fraction ->
+                InnerTile(modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top,
+                    ) {
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            SkeletonBox(
+                                modifier = Modifier
+                                    .width(72.dp)
+                                    .height(11.dp),
+                                shape = RoundedCornerShape(4.dp),
+                                color = colors.border,
+                            )
+                            SkeletonBox(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction)
+                                    .height(16.dp),
+                                shape = RoundedCornerShape(5.dp),
+                                color = colors.border,
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(UnbSpacing.sm))
+                        SkeletonBox(
+                            modifier = Modifier
+                                .width(34.dp)
+                                .height(24.dp),
+                            shape = UnbShapes.tag,
+                            color = colors.border,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SkeletonBox(
+                        modifier = Modifier
+                            .fillMaxWidth(0.48f)
+                            .height(11.dp),
+                        shape = RoundedCornerShape(4.dp),
+                        color = colors.border,
+                    )
+                }
+            }
         }
     }
 }
