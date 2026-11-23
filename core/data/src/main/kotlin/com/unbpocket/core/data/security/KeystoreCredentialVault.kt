@@ -3,6 +3,7 @@ package com.unbpocket.core.data.security
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
+import com.unbpocket.core.data.local.CredentialVault
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -25,11 +26,11 @@ data class StoredCredentials(
  */
 class KeystoreCredentialVault(
     context: Context,
-) {
+) : CredentialVault {
     private val vaultFile = File(context.noBackupFilesDir, VAULT_FILE_NAME)
     private val json = Json { ignoreUnknownKeys = true }
 
-    fun save(matricula: String, password: String) {
+    override fun save(matricula: String, password: String) {
         val plaintext = json.encodeToString(StoredCredentials(matricula, password)).toByteArray(Charsets.UTF_8)
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, getOrCreateSecretKey())
@@ -43,7 +44,7 @@ class KeystoreCredentialVault(
         vaultFile.writeBytes(payload)
     }
 
-    fun load(): StoredCredentials? {
+    override fun load(): StoredCredentials? {
         if (!vaultFile.exists()) return null
         return runCatching {
             val payload = vaultFile.readBytes()
@@ -60,9 +61,9 @@ class KeystoreCredentialVault(
         }.getOrNull()
     }
 
-    fun exists(): Boolean = vaultFile.exists() && vaultFile.length() > 0L
+    override fun exists(): Boolean = vaultFile.exists() && vaultFile.length() > 0L
 
-    fun clear() {
+    override fun clear() {
         if (vaultFile.exists()) {
             vaultFile.delete()
         }

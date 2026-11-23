@@ -10,13 +10,16 @@ import okhttp3.OkHttpClient
 import okhttp3.Response
 import okio.Buffer
 import java.nio.charset.Charset
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 
 /**
  * Interceptor OkHttp que aplica o guard-rail Read-Only antes de cada chamada de rede.
  */
-class SigaaReadOnlyInterceptor : Interceptor {
+class SigaaReadOnlyInterceptor internal constructor(
+    private val allowedHosts: Set<String>,
+) : Interceptor {
+    constructor() : this(SigaaReadOnlyGuard.defaultAllowedHosts)
+
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
         val bodyText = request.body?.let { body ->
@@ -24,44 +27,47 @@ class SigaaReadOnlyInterceptor : Interceptor {
             body.writeTo(buffer)
             buffer.readUtf8()
         }
-        SigaaReadOnlyGuard.validateRequest(
+        SigaaReadOnlyGuard.validateRequestWithHosts(
             host = request.url.host,
             path = request.url.encodedPath,
             method = request.method,
             formEncodedBody = bodyText,
+            allowedHosts = allowedHosts,
         )
         return chain.proceed(request)
     }
 }
 
 /**
- * CookieJar em memoria isolado por dominio para o fluxo CAS -> SIG -> SIGAA.
+ * CookieJar em memoria compativel com cookies de dominio (.unb.br) e host.
  */
 class InMemoryCookieJar : CookieJar {
-    private val store = ConcurrentHashMap<String, MutableList<Cookie>>()
+    private val cookies = mutableListOf<Cookie>()
 
     override fun saveFromResponse(url: HttpUrl, cookies: List<Cookie>) {
-        val hostCookies = store.getOrPut(url.host) { mutableListOf() }
-        synchronized(hostCookies) {
-            val now = System.currentTimeMillis()
-            hostCookies.removeAll { existing ->
-                existing.expiresAt < now || cookies.any { it.name == existing.name && it.path == existing.path }
+        val now = System.currentTimeMillis()
+        synchronized(this.cookies) {
+            this.cookies.removeAll { existing ->
+                existing.expiresAt < now || cookies.any {
+                    it.name == existing.name && it.domain == existing.domain && it.path == existing.path
+                }
             }
-            hostCookies.addAll(cookies.filter { it.expiresAt >= now })
+            this.cookies.addAll(cookies.filter { it.expiresAt >= now })
         }
     }
 
     override fun loadForRequest(url: HttpUrl): List<Cookie> {
-        val hostCookies = store[url.host] ?: return emptyList()
         val now = System.currentTimeMillis()
-        synchronized(hostCookies) {
-            hostCookies.removeAll { it.expiresAt < now }
-            return hostCookies.filter { it.matches(url) }
+        synchronized(this.cookies) {
+            this.cookies.removeAll { it.expiresAt < now }
+            return this.cookies.filter { it.matches(url) }
         }
     }
 
     fun clear() {
-        store.clear()
+        synchronized(this.cookies) {
+            this.cookies.clear()
+        }
     }
 }
 
@@ -71,8 +77,8 @@ class InMemoryCookieJar : CookieJar {
  */
 class UnbHttpSession(
     val cookieJar: InMemoryCookieJar = InMemoryCookieJar(),
-    val sigaaClient: OkHttpClient = defaultClient(cookieJar, followRedirects = true),
-    val noRedirectClient: OkHttpClient = defaultClient(cookieJar, followRedirects = false),
+    val sigaaClient: OkHttpClient = defaultClient(cookieJar, followRedirects = true, SigaaReadOnlyGuard.defaultAllowedHosts),
+    val noRedirectClient: OkHttpClient = defaultClient(cookieJar, followRedirects = false, SigaaReadOnlyGuard.defaultAllowedHosts),
 ) {
     private val jsfMutex = Mutex()
 
@@ -83,12 +89,25 @@ class UnbHttpSession(
 
         fun decodeSigaaBytes(bytes: ByteArray): String = String(bytes, SIGAA_CHARSET)
 
-        private fun defaultClient(cookieJar: CookieJar, followRedirects: Boolean): OkHttpClient =
+        internal fun forTesting(allowedHosts: Set<String>): UnbHttpSession {
+            val jar = InMemoryCookieJar()
+            return UnbHttpSession(
+                cookieJar = jar,
+                sigaaClient = defaultClient(jar, followRedirects = true, allowedHosts),
+                noRedirectClient = defaultClient(jar, followRedirects = false, allowedHosts),
+            )
+        }
+
+        private fun defaultClient(
+            cookieJar: CookieJar,
+            followRedirects: Boolean,
+            allowedHosts: Set<String>,
+        ): OkHttpClient =
             OkHttpClient.Builder()
                 .cookieJar(cookieJar)
                 .followRedirects(followRedirects)
                 .followSslRedirects(followRedirects)
-                .addInterceptor(SigaaReadOnlyInterceptor())
+                .addInterceptor(SigaaReadOnlyInterceptor(allowedHosts))
                 .connectTimeout(20, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(20, TimeUnit.SECONDS)

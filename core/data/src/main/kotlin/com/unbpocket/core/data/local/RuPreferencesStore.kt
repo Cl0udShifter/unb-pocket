@@ -21,8 +21,8 @@ private val Context.ruPrefsDataStore: DataStore<Preferences> by preferencesDataS
  */
 class RuPreferencesStore(
     private val context: Context,
-) {
-    val preferencias: Flow<RuPreferencias> = context.ruPrefsDataStore.data.map { prefs ->
+) : RuPrefsSource {
+    override val preferencias: Flow<RuPreferencias> = context.ruPrefsDataStore.data.map { prefs ->
         val campusSlug = prefs[KEY_CAMPUS] ?: CampusRu.DARCY_RIBEIRO.slug
         val campus = CampusRu.entries.firstOrNull { it.slug == campusSlug } ?: CampusRu.DARCY_RIBEIRO
         val alergenicoIds = prefs[KEY_ALERGENICOS] ?: emptySet()
@@ -37,13 +37,13 @@ class RuPreferencesStore(
         )
     }
 
-    suspend fun setCampus(campus: CampusRu) {
+    override suspend fun setCampus(campus: CampusRu) {
         context.ruPrefsDataStore.edit { prefs ->
             prefs[KEY_CAMPUS] = campus.slug
         }
     }
 
-    suspend fun setAlergenicos(alergenicos: Set<Alergenico>, ocultarPratos: Boolean) {
+    override suspend fun setAlergenicos(alergenicos: Set<Alergenico>, ocultarPratos: Boolean) {
         context.ruPrefsDataStore.edit { prefs ->
             prefs[KEY_ALERGENICOS] = alergenicos.map { it.id }.toSet()
             prefs[KEY_OCULTAR_ALERGENICOS] = ocultarPratos

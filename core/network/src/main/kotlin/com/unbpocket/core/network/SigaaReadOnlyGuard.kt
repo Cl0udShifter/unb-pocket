@@ -18,7 +18,7 @@ class ReadOnlyViolationException(
  * requisicoes de leitura e navegacao/emissao mapeadas no contrato.
  */
 object SigaaReadOnlyGuard {
-    private val allowedHosts = setOf(
+    val defaultAllowedHosts: Set<String> = setOf(
         "sigaa.unb.br",
         "autenticacao.unb.br",
         "sig.unb.br",
@@ -33,7 +33,16 @@ object SigaaReadOnlyGuard {
         "/cxpostal/caixa_postal.jsf",
     )
 
-    private val forbiddenPayloadTokens = listOf(
+    private val allowedCasLoginKeys = setOf(
+        "username",
+        "password",
+        "lt",
+        "execution",
+        "_eventId",
+        "submit",
+    )
+
+    private val forbiddenSigaaTokens = listOf(
         "retiradaMatricula",
         "trancamentoMatricula",
         "trancamentoPrograma",
@@ -51,6 +60,22 @@ object SigaaReadOnlyGuard {
         path: String,
         method: String,
         formEncodedBody: String?,
+    ) {
+        validateRequestWithHosts(
+            host = host,
+            path = path,
+            method = method,
+            formEncodedBody = formEncodedBody,
+            allowedHosts = defaultAllowedHosts,
+        )
+    }
+
+    internal fun validateRequestWithHosts(
+        host: String,
+        path: String,
+        method: String,
+        formEncodedBody: String?,
+        allowedHosts: Set<String>,
     ) {
         val normalizedHost = host.lowercase()
         if (normalizedHost !in allowedHosts) {
@@ -79,13 +104,30 @@ object SigaaReadOnlyGuard {
             )
         }
 
-        val decodedBody = formEncodedBody
-            ?.let { raw ->
-                runCatching { URLDecoder.decode(raw, StandardCharsets.UTF_8.name()) }.getOrDefault(raw)
+        val rawBody = formEncodedBody.orEmpty()
+        if (cleanPath == "/sso-server/login") {
+            val keys = rawBody
+                .split('&')
+                .filter { it.isNotBlank() }
+                .map { param ->
+                    val rawKey = param.substringBefore('=')
+                    runCatching { URLDecoder.decode(rawKey, StandardCharsets.UTF_8.name()) }.getOrDefault(rawKey)
+                }
+            val unexpectedKeys = keys.filter { it !in allowedCasLoginKeys }
+            if (unexpectedKeys.isNotEmpty()) {
+                throw ReadOnlyViolationException(
+                    blockedTarget = "POST $host$cleanPath",
+                    reason = "Campos nao permitidos no login CAS: ${unexpectedKeys.joinToString()}",
+                )
             }
-            .orEmpty()
+            return
+        }
 
-        for (token in forbiddenPayloadTokens) {
+        val decodedBody = runCatching {
+            URLDecoder.decode(rawBody, StandardCharsets.UTF_8.name())
+        }.getOrDefault(rawBody)
+
+        for (token in forbiddenSigaaTokens) {
             if (decodedBody.contains(token, ignoreCase = false)) {
                 throw ReadOnlyViolationException(
                     blockedTarget = "POST $host$cleanPath",
