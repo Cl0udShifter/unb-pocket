@@ -48,6 +48,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.unbpocket.app.BuildConfig
 import com.unbpocket.app.ui.auth.AccountQuickSheet
 import com.unbpocket.app.ui.auth.LoginScreen
 import com.unbpocket.app.ui.components.CapsuleBottomBar
@@ -530,6 +531,15 @@ private fun UnbNavHost(
                             }
                         }
 
+                        LaunchedEffect(discenteSelected) {
+                            if (discenteSelected) {
+                                discenteViewModel.checkForUpdates(
+                                    currentVersionName = BuildConfig.VERSION_NAME,
+                                    force = false,
+                                )
+                            }
+                        }
+
                         DiscenteScreen(
                             uiState = discenteUiState,
                             authUiState = authUiState,
@@ -542,6 +552,15 @@ private fun UnbNavHost(
                             onOpenLogin = onOpenLogin,
                             onOpenAccountSheet = onOpenAccountSheet,
                             onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.DISCENTE) },
+                            onCheckForUpdates = {
+                                discenteViewModel.checkForUpdates(
+                                    currentVersionName = BuildConfig.VERSION_NAME,
+                                    force = true,
+                                )
+                            },
+                            onDownloadUpdate = discenteViewModel::downloadUpdate,
+                            onConsumePendingApkInstall = discenteViewModel::consumePendingApkInstall,
+                            onDismissUpdateError = discenteViewModel::dismissUpdateError,
                             onLogout = {
                                 discenteViewModel.resetQrCardToBalance()
                                 authViewModel.logout(clearCachedData = true)

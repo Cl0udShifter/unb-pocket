@@ -15,6 +15,10 @@ import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.discente.DocumentoOficialEmitido
 import com.unbpocket.core.model.discente.TipoDocumentoOficial
 import com.unbpocket.core.model.ru.SaldoExtratoRu
+import com.unbpocket.core.model.turmas.ArquivoBaixado
+import com.unbpocket.core.model.update.AppReleaseInfo
+import com.unbpocket.core.model.update.AppUpdateCheckResult
+import com.unbpocket.core.model.update.AppUpdateDownloadProgress
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -46,6 +50,12 @@ data class DiscenteUiState(
     val carteirinhaError: UiErrorBanner? = null,
     val boletimError: UiErrorBanner? = null,
     val documentosError: UiErrorBanner? = null,
+    val updateCheck: SyncedData<AppUpdateCheckResult>? = null,
+    val updateDownloadProgress: AppUpdateDownloadProgress? = null,
+    val isCheckingUpdate: Boolean = false,
+    val isDownloadingUpdate: Boolean = false,
+    val pendingApkInstallEvent: ArquivoBaixado? = null,
+    val updateError: UiErrorBanner? = null,
 )
 
 private data class DiscenteControlState(
@@ -60,6 +70,10 @@ private data class DiscenteControlState(
     val carteirinhaError: UiErrorBanner? = null,
     val boletimError: UiErrorBanner? = null,
     val documentosError: UiErrorBanner? = null,
+    val isCheckingUpdate: Boolean = false,
+    val isDownloadingUpdate: Boolean = false,
+    val pendingApkInstallEvent: ArquivoBaixado? = null,
+    val updateError: UiErrorBanner? = null,
 )
 
 class DiscenteViewModel(
@@ -87,6 +101,8 @@ class DiscenteViewModel(
         resolvedCarteirinhaFlow,
         resolvedBoletimFlow,
         core.discente.observeDocumentosEmitidos(),
+        core.updates.observeLatestUpdateCheck(),
+        core.updates.downloadProgress,
         controlState,
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -101,7 +117,11 @@ class DiscenteViewModel(
         val resolvedBoletim = values[4] as Pair<Boolean, SyncedData<List<BoletimSemestre>>?>
         @Suppress("UNCHECKED_CAST")
         val docs = values[5] as List<DocumentoOficialEmitido>
-        val ctrl = values[6] as DiscenteControlState
+        @Suppress("UNCHECKED_CAST")
+        val updateCheck = values[6] as SyncedData<AppUpdateCheckResult>?
+        @Suppress("UNCHECKED_CAST")
+        val downloadProgress = values[7] as AppUpdateDownloadProgress?
+        val ctrl = values[8] as DiscenteControlState
 
         DiscenteUiState(
             authState = auth,
@@ -124,6 +144,12 @@ class DiscenteViewModel(
             carteirinhaError = ctrl.carteirinhaError.withoutStaleAuth(auth),
             boletimError = ctrl.boletimError.withoutStaleAuth(auth),
             documentosError = ctrl.documentosError.withoutStaleAuth(auth),
+            updateCheck = updateCheck,
+            updateDownloadProgress = downloadProgress,
+            isCheckingUpdate = ctrl.isCheckingUpdate,
+            isDownloadingUpdate = ctrl.isDownloadingUpdate,
+            pendingApkInstallEvent = ctrl.pendingApkInstallEvent,
+            updateError = ctrl.updateError,
         )
     }.stateIn(
         scope = viewModelScope,
@@ -261,5 +287,63 @@ class DiscenteViewModel(
 
     fun dismissDocumentosError() {
         controlState.update { it.copy(documentosError = null) }
+    }
+
+    fun checkForUpdates(
+        currentVersionName: String,
+        force: Boolean = true,
+    ) {
+        if (controlState.value.isCheckingUpdate) return
+        viewModelScope.launch {
+            controlState.update {
+                it.copy(
+                    isCheckingUpdate = force,
+                    updateError = if (force) null else it.updateError,
+                )
+            }
+            when (val res = core.updates.checkForUpdates(currentVersionName = currentVersionName, force = force)) {
+                is CoreResult.Success -> controlState.update {
+                    it.copy(isCheckingUpdate = false, updateError = null)
+                }
+
+                is CoreResult.Failure -> controlState.update {
+                    it.copy(
+                        isCheckingUpdate = false,
+                        updateError = if (force) CoreErrorMapper.toUiError(res.error) else it.updateError,
+                    )
+                }
+            }
+        }
+    }
+
+    fun downloadUpdate(release: AppReleaseInfo) {
+        if (controlState.value.isDownloadingUpdate) return
+        viewModelScope.launch {
+            controlState.update { it.copy(isDownloadingUpdate = true, updateError = null) }
+            when (val res = core.updates.downloadReleaseApk(release)) {
+                is CoreResult.Success -> controlState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        pendingApkInstallEvent = res.value,
+                        updateError = null,
+                    )
+                }
+
+                is CoreResult.Failure -> controlState.update {
+                    it.copy(
+                        isDownloadingUpdate = false,
+                        updateError = CoreErrorMapper.toUiError(res.error),
+                    )
+                }
+            }
+        }
+    }
+
+    fun consumePendingApkInstall() {
+        controlState.update { it.copy(pendingApkInstallEvent = null) }
+    }
+
+    fun dismissUpdateError() {
+        controlState.update { it.copy(updateError = null) }
     }
 }

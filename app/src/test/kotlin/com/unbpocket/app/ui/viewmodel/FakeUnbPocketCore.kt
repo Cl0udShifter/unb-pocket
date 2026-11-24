@@ -446,8 +446,13 @@ class FakeDiscenteRepository : DiscenteRepository {
 
 class FakeAppUpdateRepository : AppUpdateRepository {
     val latestCheck = MutableStateFlow<SyncedData<AppUpdateCheckResult>?>(null)
-    private val _downloadProgress = MutableStateFlow<AppUpdateDownloadProgress?>(null)
-    override val downloadProgress: StateFlow<AppUpdateDownloadProgress?> = _downloadProgress.asStateFlow()
+    val downloadProgressFlow = MutableStateFlow<AppUpdateDownloadProgress?>(null)
+    override val downloadProgress: StateFlow<AppUpdateDownloadProgress?> = downloadProgressFlow.asStateFlow()
+
+    var checkCalls = 0
+    var downloadCalls = 0
+    var nextCheckResult: CoreResult<AppUpdateCheckResult>? = null
+    var nextDownloadResult: CoreResult<ArquivoBaixado>? = null
 
     override fun observeLatestUpdateCheck(): Flow<SyncedData<AppUpdateCheckResult>?> = latestCheck
 
@@ -455,22 +460,39 @@ class FakeAppUpdateRepository : AppUpdateRepository {
         currentVersionName: String,
         force: Boolean,
     ): CoreResult<AppUpdateCheckResult> {
+        checkCalls++
+        nextCheckResult?.let { configured ->
+            if (configured is CoreResult.Success) {
+                latestCheck.value = SyncedData(configured.value, DataOrigin.REMOTE, configured.value.checkedAtEpochMillis)
+            }
+            return configured
+        }
         val result = latestCheck.value?.value ?: AppUpdateCheckResult(
             currentVersionName = currentVersionName,
             latestRelease = null,
             hasUpdate = false,
             checkedAtEpochMillis = 1000L,
         )
+        latestCheck.value = SyncedData(result, DataOrigin.REMOTE, result.checkedAtEpochMillis)
         return CoreResult.Success(result)
     }
 
-    override suspend fun downloadReleaseApk(release: AppReleaseInfo): CoreResult<ArquivoBaixado> =
-        CoreResult.Success(
-            ArquivoBaixado(
-                nomeArquivo = release.apkFileName,
-                mimeType = "application/vnd.android.package-archive",
-                localFilePath = "/tmp/${release.apkFileName}",
-                tamanhoBytes = release.apkSizeBytes ?: 1024L,
-            ),
+    override suspend fun downloadReleaseApk(release: AppReleaseInfo): CoreResult<ArquivoBaixado> {
+        downloadCalls++
+        nextDownloadResult?.let { return it }
+        val file = ArquivoBaixado(
+            nomeArquivo = release.apkFileName,
+            mimeType = "application/vnd.android.package-archive",
+            localFilePath = "/tmp/${release.apkFileName}",
+            tamanhoBytes = release.apkSizeBytes ?: 1024L,
         )
+        downloadProgressFlow.value = AppUpdateDownloadProgress(
+            versionName = release.versionName,
+            bytesDownloaded = file.tamanhoBytes,
+            totalBytes = file.tamanhoBytes,
+            isCompleted = true,
+            localApkPath = file.localFilePath,
+        )
+        return CoreResult.Success(file)
+    }
 }

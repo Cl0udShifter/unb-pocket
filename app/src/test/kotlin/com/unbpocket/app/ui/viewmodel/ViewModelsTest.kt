@@ -409,6 +409,65 @@ class ViewModelsTest {
     }
 
     @Test
+    fun `DiscenteViewModel checks GitHub updates, silences non-forced errors and emits APK install event`() = runTest {
+        val core = FakeUnbPocketCore()
+        val vm = DiscenteViewModel(core)
+        val collector = backgroundScope.launch(testDispatcher) { vm.uiState.collect() }
+        advanceUntilIdle()
+
+        // Silent check swallows network failures without banner
+        core.updatesFake.nextCheckResult = CoreResult.Failure(CoreError.NetworkUnavailable)
+        vm.checkForUpdates(currentVersionName = "0.0.3", force = false)
+        advanceUntilIdle()
+        assertEquals(1, core.updatesFake.checkCalls)
+        assertNull(vm.uiState.value.updateError)
+
+        // Manual check surfaces error banner
+        vm.checkForUpdates(currentVersionName = "0.0.3", force = true)
+        advanceUntilIdle()
+        assertNotNull(vm.uiState.value.updateError)
+
+        // Successful check exposes release and clears error
+        val release = com.unbpocket.core.model.update.AppReleaseInfo(
+            tagName = "v0.0.4",
+            versionName = "0.0.4",
+            title = "UnB Pocket 0.0.4",
+            releaseNotes = "Melhorias visuais e atualizacao in-app.",
+            publishedAtIso = "2026-11-24T12:00:00Z",
+            htmlUrl = "https://github.com/Cl0udShifter/unb-pocket/releases/tag/v0.0.4",
+            apkDownloadUrl = "https://github.com/Cl0udShifter/unb-pocket/releases/download/v0.0.4/unb-pocket-0.0.4.apk",
+            apkFileName = "unb-pocket-0.0.4.apk",
+            apkSizeBytes = 12_500_000L,
+        )
+        core.updatesFake.nextCheckResult = CoreResult.Success(
+            com.unbpocket.core.model.update.AppUpdateCheckResult(
+                currentVersionName = "0.0.3",
+                latestRelease = release,
+                hasUpdate = true,
+                checkedAtEpochMillis = 2_000L,
+            ),
+        )
+        vm.checkForUpdates(currentVersionName = "0.0.3", force = true)
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.updateError)
+        assertTrue(vm.uiState.value.updateCheck?.value?.hasUpdate == true)
+        assertEquals("0.0.4", vm.uiState.value.updateCheck?.value?.latestRelease?.versionName)
+
+        // Download completes and exposes pending APK install event
+        vm.downloadUpdate(release)
+        advanceUntilIdle()
+        assertEquals(1, core.updatesFake.downloadCalls)
+        assertEquals("/tmp/unb-pocket-0.0.4.apk", vm.uiState.value.pendingApkInstallEvent?.localFilePath)
+        assertTrue(vm.uiState.value.updateDownloadProgress?.isCompleted == true)
+
+        vm.consumePendingApkInstall()
+        advanceUntilIdle()
+        assertNull(vm.uiState.value.pendingApkInstallEvent)
+
+        collector.cancel()
+    }
+
+    @Test
     fun `AuthViewModel executes phase 1 before login callback starts background preload and silences startup network errors`() = runTest {
         val core = FakeUnbPocketCore()
         val vm = AuthViewModel(core)

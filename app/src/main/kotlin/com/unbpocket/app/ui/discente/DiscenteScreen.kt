@@ -24,7 +24,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
@@ -32,6 +34,7 @@ import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.QrCode2
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +43,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,12 +53,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import com.unbpocket.app.BuildConfig
+import com.unbpocket.app.ui.common.FileOpener
 import com.unbpocket.app.ui.common.Formatters
 import com.unbpocket.app.ui.components.EditorialCard
 import com.unbpocket.app.ui.components.EditorialHeader
@@ -81,6 +89,9 @@ import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.discente.CarteirinhaEstudantil
 import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.ru.SaldoExtratoRu
+import com.unbpocket.core.model.update.AppReleaseInfo
+import com.unbpocket.core.model.update.AppUpdateCheckResult
+import com.unbpocket.core.model.update.AppUpdateDownloadProgress
 import java.util.Locale
 
 @Composable
@@ -96,6 +107,10 @@ fun DiscenteScreen(
     onOpenLogin: () -> Unit,
     onOpenAccountSheet: () -> Unit,
     onOpenNotifications: () -> Unit,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: (AppReleaseInfo) -> Unit,
+    onConsumePendingApkInstall: () -> Unit,
+    onDismissUpdateError: () -> Unit,
     onLogout: () -> Unit,
     onDismissProfileError: () -> Unit,
     onDismissSyncError: () -> Unit,
@@ -103,8 +118,33 @@ fun DiscenteScreen(
 ) {
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
+    val context = LocalContext.current
 
     var showLogoutDialog by remember { mutableStateOf(false) }
+    var permissionNeededApkPath by remember { mutableStateOf<String?>(null) }
+    var awaitingPermissionReturnPath by remember { mutableStateOf<String?>(null) }
+
+    val triggerApkInstall: (String) -> Unit = { localPath ->
+        if (FileOpener.canInstallApks(context)) {
+            FileOpener.installApk(context, localPath)
+        } else {
+            permissionNeededApkPath = localPath
+        }
+    }
+
+    LaunchedEffect(uiState.pendingApkInstallEvent) {
+        val downloaded = uiState.pendingApkInstallEvent ?: return@LaunchedEffect
+        triggerApkInstall(downloaded.localFilePath)
+        onConsumePendingApkInstall()
+    }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val pendingPath = awaitingPermissionReturnPath
+        if (pendingPath != null && FileOpener.canInstallApks(context)) {
+            awaitingPermissionReturnPath = null
+            FileOpener.installApk(context, pendingPath)
+        }
+    }
 
     val resumoSynced = uiState.discenteResumo
     val resumo = resumoSynced?.value
@@ -197,6 +237,31 @@ fun DiscenteScreen(
                         onAction = onOpenLogin,
                     )
                 }
+                item(key = "app_version_card_gate") {
+                    AppVersionUpdateCard(
+                        updateCheck = uiState.updateCheck?.value,
+                        downloadProgress = uiState.updateDownloadProgress,
+                        isCheckingUpdate = uiState.isCheckingUpdate,
+                        isDownloadingUpdate = uiState.isDownloadingUpdate,
+                        updateError = uiState.updateError,
+                        onCheckForUpdates = onCheckForUpdates,
+                        onDownloadUpdate = onDownloadUpdate,
+                        onInstallDownloadedApk = triggerApkInstall,
+                        onOpenReleaseUrl = { url -> FileOpener.openExternalUrl(context, url) },
+                        onDismissUpdateError = onDismissUpdateError,
+                    )
+                }
+            }
+            if (permissionNeededApkPath != null) {
+                UnknownSourcesPermissionDialog(
+                    onConfirm = {
+                        val path = permissionNeededApkPath
+                        permissionNeededApkPath = null
+                        awaitingPermissionReturnPath = path
+                        FileOpener.openUnknownAppSourcesSettings(context)
+                    },
+                    onDismiss = { permissionNeededApkPath = null },
+                )
             }
             return
         }
@@ -285,31 +350,18 @@ fun DiscenteScreen(
                 }
 
                 item(key = "app_version_card") {
-                    EditorialCard(contentPadding = PaddingValues(UnbSpacing.md)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = "Versão do Aplicativo",
-                                    style = typography.title,
-                                    color = colors.ink,
-                                )
-                                Text(
-                                    text = "UnB Pocket · Somente leitura",
-                                    style = typography.label,
-                                    color = colors.muted,
-                                )
-                            }
-                            Text(
-                                text = "v${BuildConfig.VERSION_NAME}",
-                                style = typography.mono,
-                                color = colors.muted,
-                            )
-                        }
-                    }
+                    AppVersionUpdateCard(
+                        updateCheck = uiState.updateCheck?.value,
+                        downloadProgress = uiState.updateDownloadProgress,
+                        isCheckingUpdate = uiState.isCheckingUpdate,
+                        isDownloadingUpdate = uiState.isDownloadingUpdate,
+                        updateError = uiState.updateError,
+                        onCheckForUpdates = onCheckForUpdates,
+                        onDownloadUpdate = onDownloadUpdate,
+                        onInstallDownloadedApk = triggerApkInstall,
+                        onOpenReleaseUrl = { url -> FileOpener.openExternalUrl(context, url) },
+                        onDismissUpdateError = onDismissUpdateError,
+                    )
                 }
 
                 if (uiState.authState is AuthState.Authenticated) {
@@ -449,6 +501,374 @@ fun DiscenteScreen(
                 }
             },
         )
+    }
+
+    if (permissionNeededApkPath != null) {
+        UnknownSourcesPermissionDialog(
+            onConfirm = {
+                val path = permissionNeededApkPath
+                permissionNeededApkPath = null
+                awaitingPermissionReturnPath = path
+                FileOpener.openUnknownAppSourcesSettings(context)
+            },
+            onDismiss = { permissionNeededApkPath = null },
+        )
+    }
+}
+
+@Composable
+private fun UnknownSourcesPermissionDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = colors.surface,
+        titleContentColor = colors.ink,
+        textContentColor = colors.muted,
+        title = {
+            Text(
+                text = "Permitir instalação de atualizações",
+                style = typography.titleStrong,
+            )
+        },
+        text = {
+            Text(
+                text = "Para instalar a nova versão do UnB Pocket, habilite a permissão de instalar apps desta fonte nas configurações do Android.",
+                style = typography.body,
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = "Abrir configurações",
+                    style = typography.label,
+                    color = colors.ink,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = "Cancelar",
+                    style = typography.label,
+                    color = colors.muted,
+                )
+            }
+        },
+    )
+}
+
+@Composable
+private fun AppVersionUpdateCard(
+    updateCheck: AppUpdateCheckResult?,
+    downloadProgress: AppUpdateDownloadProgress?,
+    isCheckingUpdate: Boolean,
+    isDownloadingUpdate: Boolean,
+    updateError: com.unbpocket.app.ui.common.UiErrorBanner?,
+    onCheckForUpdates: () -> Unit,
+    onDownloadUpdate: (AppReleaseInfo) -> Unit,
+    onInstallDownloadedApk: (String) -> Unit,
+    onOpenReleaseUrl: (String) -> Unit,
+    onDismissUpdateError: () -> Unit,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+
+    val latestRelease = updateCheck?.latestRelease
+    val availableRelease = if (updateCheck?.hasUpdate == true) latestRelease else null
+    val hasUpdate = availableRelease != null
+    val activeDownload = downloadProgress?.takeIf { isDownloadingUpdate || !it.isCompleted }
+    val completedApkPath = downloadProgress
+        ?.takeIf { it.isCompleted && availableRelease != null && it.versionName == availableRelease.versionName }
+        ?.localApkPath
+
+    val subtitleText = when {
+        isCheckingUpdate -> "Verificando atualizações..."
+        availableRelease != null -> "Nova versão v${availableRelease.versionName} disponível"
+        updateCheck != null -> "Atualizado · ${Formatters.formatSyncTimestamp(updateCheck.checkedAtEpochMillis)}"
+        else -> "UnB Pocket · Somente leitura"
+    }
+
+    EditorialCard(contentPadding = PaddingValues(UnbSpacing.lg)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
+                Text(
+                    text = "Versão do Aplicativo",
+                    style = typography.title,
+                    color = colors.ink,
+                )
+                Text(
+                    text = subtitleText,
+                    style = typography.label,
+                    color = colors.muted,
+                )
+            }
+            Spacer(modifier = Modifier.width(UnbSpacing.sm))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                if (hasUpdate) {
+                    StatusTag(text = "NOVA", tone = StatusTagTone.INFO)
+                }
+                Text(
+                    text = "v${BuildConfig.VERSION_NAME}",
+                    style = typography.mono,
+                    color = colors.muted,
+                )
+            }
+        }
+
+        if (updateError != null) {
+            Spacer(modifier = Modifier.height(UnbSpacing.md))
+            ErrorBanner(
+                banner = updateError,
+                onRetry = if (updateError.canRetry) onCheckForUpdates else null,
+                onDismiss = onDismissUpdateError,
+            )
+        }
+
+        if (activeDownload != null || isDownloadingUpdate) {
+            Spacer(modifier = Modifier.height(UnbSpacing.md))
+            InnerTile(
+                modifier = Modifier.fillMaxWidth(),
+                borderColor = colors.border,
+            ) {
+                val fraction = activeDownload?.progressFraction
+                val percentText = fraction?.let { "${(it * 100f).toInt()}%" }
+                val bytesText = activeDownload?.let { progress ->
+                    val downloadedMb = formatBytesCompact(progress.bytesDownloaded)
+                    val totalMb = progress.totalBytes?.let(::formatBytesCompact)
+                    if (totalMb != null) "$downloadedMb / $totalMb" else downloadedMb
+                }
+                val metaText = listOfNotNull(percentText, bytesText).joinToString(" · ")
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(UnbSpacing.sm),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "Baixando v${activeDownload?.versionName ?: latestRelease?.versionName.orEmpty()}...",
+                            style = typography.label,
+                            color = colors.ink,
+                        )
+                        if (metaText.isNotBlank()) {
+                            Text(
+                                text = metaText,
+                                style = typography.mono,
+                                color = colors.muted,
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(CircleShape)
+                            .background(colors.border),
+                    ) {
+                        if (fraction != null) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth(fraction.coerceIn(0.02f, 1f))
+                                    .fillMaxHeight()
+                                    .clip(CircleShape)
+                                    .background(colors.pillActiveBg),
+                            )
+                        } else {
+                            SkeletonInlineBar(
+                                width = 72.dp,
+                                height = 6.dp,
+                                color = colors.pillActiveBg,
+                            )
+                        }
+                    }
+                }
+            }
+        } else if (availableRelease != null) {
+            Spacer(modifier = Modifier.height(UnbSpacing.md))
+            InnerTile(
+                modifier = Modifier.fillMaxWidth(),
+                borderColor = colors.border,
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(UnbSpacing.sm),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = availableRelease.title.ifBlank { "Versão ${availableRelease.versionName}" },
+                            style = typography.titleStrong,
+                            color = colors.ink,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        availableRelease.apkSizeBytes?.let { sizeBytes ->
+                            Spacer(modifier = Modifier.width(UnbSpacing.sm))
+                            Text(
+                                text = formatBytesCompact(sizeBytes),
+                                style = typography.mono,
+                                color = colors.muted,
+                            )
+                        }
+                    }
+
+                    val notesPreview = availableRelease.releaseNotes.trim()
+                    if (notesPreview.isNotBlank()) {
+                        Text(
+                            text = notesPreview,
+                            style = typography.body,
+                            color = colors.muted,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+
+                    Button(
+                        onClick = {
+                            if (completedApkPath != null) {
+                                onInstallDownloadedApk(completedApkPath)
+                            } else {
+                                onDownloadUpdate(availableRelease)
+                            }
+                        },
+                        shape = UnbShapes.inner,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = colors.pillActiveBg,
+                            contentColor = colors.pillActiveInk,
+                        ),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = 48.dp),
+                    ) {
+                        Icon(
+                            imageVector = if (completedApkPath != null) {
+                                Icons.Rounded.SystemUpdate
+                            } else {
+                                Icons.Rounded.Download
+                            },
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = if (completedApkPath != null) {
+                                "Instalar v${availableRelease.versionName}"
+                            } else {
+                                "Baixar e instalar v${availableRelease.versionName}"
+                            },
+                            style = typography.title,
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (availableRelease.htmlUrl.isNotBlank()) {
+                            TextButton(
+                                onClick = { onOpenReleaseUrl(availableRelease.htmlUrl) },
+                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                            ) {
+                                Text(
+                                    text = "Notas no GitHub",
+                                    style = typography.label,
+                                    color = colors.muted,
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Rounded.OpenInNew,
+                                    contentDescription = null,
+                                    tint = colors.muted,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                            }
+                        } else {
+                            Spacer(modifier = Modifier.width(1.dp))
+                        }
+
+                        TextButton(
+                            onClick = onCheckForUpdates,
+                            enabled = !isCheckingUpdate,
+                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp),
+                        ) {
+                            Text(
+                                text = "Verificar novamente",
+                                style = typography.label,
+                                color = colors.ink,
+                            )
+                        }
+                    }
+                }
+            }
+        } else {
+            Spacer(modifier = Modifier.height(UnbSpacing.md))
+            OutlinedButton(
+                onClick = onCheckForUpdates,
+                enabled = !isCheckingUpdate,
+                border = BorderStroke(1.dp, colors.border),
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.ink),
+                shape = UnbShapes.inner,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = 48.dp),
+            ) {
+                if (isCheckingUpdate) {
+                    SkeletonInlineBar(
+                        width = 20.dp,
+                        height = 6.dp,
+                        color = colors.ink,
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Rounded.SystemUpdate,
+                        contentDescription = null,
+                        modifier = Modifier.size(17.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = if (isCheckingUpdate) "Verificando..." else "Verificar atualizações",
+                    style = typography.label,
+                )
+            }
+        }
+    }
+}
+
+private fun formatBytesCompact(bytes: Long): String {
+    if (bytes <= 0L) return "0 KB"
+    val mb = bytes / (1024.0 * 1024.0)
+    return if (mb >= 1.0) {
+        String.format(Locale("pt", "BR"), "%.1f MB", mb)
+    } else {
+        val kb = (bytes / 1024.0).coerceAtLeast(1.0)
+        String.format(Locale("pt", "BR"), "%.0f KB", kb)
     }
 }
 
