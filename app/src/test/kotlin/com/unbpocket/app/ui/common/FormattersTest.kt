@@ -152,4 +152,61 @@ class FormattersTest {
         assertEquals("74%", Formatters.formatIntegralizacaoPercent(null, "Integralizações: CH 3750 74% Integralizado"))
         assertEquals("-", Formatters.formatIntegralizacaoPercent(null, null))
     }
+
+    @Test
+    fun `formatRuGroupSummary and formatRuRemainingMealsSummary produce concise readable text`() {
+        assertEquals(
+            "Grupo II · Graduação e pós-graduação",
+            Formatters.formatRuGroupSummary(com.unbpocket.core.model.ru.GrupoAcessoRu.GRUPO_2),
+        )
+        assertEquals(
+            "Gratuidade ativa",
+            Formatters.formatRuRemainingMealsSummary(
+                com.unbpocket.core.model.ru.RefeicoesRestantes(
+                    cafesRestantes = 0,
+                    almocosOuJantaresRestantes = 0,
+                    trocoCafeCentavos = 0L,
+                    trocoAlmocoJantarCentavos = 0L,
+                    gratuito = true,
+                ),
+            ),
+        )
+        assertEquals(
+            "Rende cerca de 1 almoço ou jantar",
+            Formatters.formatRuRemainingMealsSummary(
+                com.unbpocket.core.model.ru.RefeicoesRestantes(
+                    cafesRestantes = 2,
+                    almocosOuJantaresRestantes = 1,
+                    trocoCafeCentavos = 0L,
+                    trocoAlmocoJantarCentavos = 0L,
+                    gratuito = false,
+                ),
+            ),
+        )
+        assertEquals(
+            "Rende cerca de 5 almoços ou jantares",
+            Formatters.formatRuRemainingMealsSummary(
+                com.unbpocket.core.model.ru.RefeicoesRestantes(
+                    cafesRestantes = 12,
+                    almocosOuJantaresRestantes = 5,
+                    trocoCafeCentavos = 0L,
+                    trocoAlmocoJantarCentavos = 0L,
+                    gratuito = false,
+                ),
+            ),
+        )
+        assertEquals(
+            "Saldo insuficiente para uma refeição",
+            Formatters.formatRuRemainingMealsSummary(
+                com.unbpocket.core.model.ru.RefeicoesRestantes(
+                    cafesRestantes = 0,
+                    almocosOuJantaresRestantes = 0,
+                    trocoCafeCentavos = 0L,
+                    trocoAlmocoJantarCentavos = 0L,
+                    gratuito = false,
+                ),
+            ),
+        )
+        assertEquals(null, Formatters.formatRuRemainingMealsSummary(null))
+    }
 }

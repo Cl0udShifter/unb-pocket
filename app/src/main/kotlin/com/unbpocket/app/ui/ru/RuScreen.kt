@@ -42,7 +42,6 @@ import androidx.compose.material.icons.rounded.Newspaper
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonOutline
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Restaurant
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
@@ -363,36 +362,10 @@ fun RuScreen(
 
                 if (cardapioSynced != null) {
                     item(key = "origin_footer") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            OfflineOriginStrip(
-                                origin = cardapioSynced.origin,
-                                syncedAtEpochMillis = cardapioSynced.syncedAtEpochMillis,
-                                extraNote = cardapioSynced.value.semanaLabel.takeIf { it.isNotBlank() },
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(
-                                onClick = onRefreshMenu,
-                                enabled = !uiState.isRefreshingMenu,
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Rounded.Refresh,
-                                    contentDescription = null,
-                                    tint = colors.ink,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text(
-                                    text = "Atualizar",
-                                    style = typography.label,
-                                    color = colors.ink,
-                                )
-                            }
-                        }
+                        OfflineOriginStrip(
+                            origin = cardapioSynced.origin,
+                            syncedAtEpochMillis = cardapioSynced.syncedAtEpochMillis,
+                        )
                     }
                 }
             }
@@ -1127,7 +1100,7 @@ private fun AllergenFilterBottomSheet(
             }
 
             Text(
-                text = "Classificação MSE automática sobre os pratos do cardápio oficial.",
+                text = "Marque suas restrições para destacar ou ocultar pratos que contenham esses ingredientes no cardápio.",
                 style = typography.body,
                 color = colors.muted,
             )

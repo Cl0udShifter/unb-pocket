@@ -75,8 +75,6 @@ import com.unbpocket.app.ui.ru.RuNotificationScheduleGrid
 import com.unbpocket.app.ui.components.EditorialCard
 import com.unbpocket.app.ui.components.HairlineDivider
 import com.unbpocket.app.ui.components.InnerTile
-import com.unbpocket.app.ui.components.StatusTag
-import com.unbpocket.app.ui.components.StatusTagTone
 import com.unbpocket.app.ui.theme.UnbShapes
 import com.unbpocket.app.ui.theme.UnbSpacing
 import com.unbpocket.app.ui.theme.UnbTheme
@@ -285,10 +283,10 @@ fun NotificationCenterBottomSheet(
     }
     val sheetSubtitle = remember(initialSection) {
         when (initialSection) {
-            NotificationCenterSection.RU -> "Alertas locais 1h antes das refeições escolhidas, mesmo com o app fechado."
+            NotificationCenterSection.RU -> "Receba avisos 1h antes das refeições selecionadas."
             NotificationCenterSection.TURMAS -> "Lembretes de aulas, avisos, materiais, provas, notas e faltas."
             NotificationCenterSection.DISCENTE -> "Alertas de saldo RU, extrato, boletim e índices acadêmicos."
-            null -> "Lembretes locais e monitoramento em segundo plano com o app fechado."
+            null -> "Lembretes de cardápio, turmas e painel discente."
         }
     }
     val isScopedToSingleScreen = initialSection != null
@@ -461,15 +459,10 @@ fun NotificationCenterBottomSheet(
             visibleSections.forEach { section ->
                 when (section) {
                     NotificationCenterSection.RU -> {
-                        val ruSlotsCount = ruNotificacoes.refeicoesPorDia.values.sumOf { it.size }
                         NotificationSectionCard(
                             icon = Icons.Rounded.Restaurant,
                             title = "Cardápio do RU",
-                            subtitle = if (ruNotificacoes.habilitado) {
-                                if (ruSlotsCount > 0) "$ruSlotsCount refeições marcadas na semana" else "Ativo · selecione horários na grade"
-                            } else {
-                                "Café (06h), Almoço (10h) e Jantar (16h)"
-                            },
+                            subtitle = "Café (06h), Almoço (10h) e Jantar (16h)",
                             checked = ruNotificacoes.habilitado,
                             expanded = if (isScopedToSingleScreen) true else expandedRu,
                             collapsible = !isScopedToSingleScreen,
@@ -509,23 +502,12 @@ fun NotificationCenterBottomSheet(
                     }
 
                     NotificationCenterSection.TURMAS -> {
-                        val turmasEnabledCount = listOf(
-                            sigaaNotificacoes.aulasLembrete,
-                            sigaaNotificacoes.avisosEMateriaisNovos,
-                            sigaaNotificacoes.provasETarefasLembrete,
-                            sigaaNotificacoes.notasParciaisAlteradas,
-                            sigaaNotificacoes.riscoFaltaAlerta,
-                        ).count { it }
                         val turmasChecked = sigaaNotificacoes.habilitado && sigaaNotificacoes.turmasHabilitado
 
                         NotificationSectionCard(
                             icon = Icons.Rounded.School,
                             title = "Aulas & Turmas",
-                            subtitle = if (turmasChecked) {
-                                "$turmasEnabledCount categorias ativas"
-                            } else {
-                                "Horários, avisos, materiais, provas, notas e faltas"
-                            },
+                            subtitle = "Horários, avisos, materiais, provas, notas e faltas",
                             checked = turmasChecked,
                             expanded = if (isScopedToSingleScreen) true else expandedTurmas,
                             collapsible = !isScopedToSingleScreen,
@@ -667,22 +649,12 @@ fun NotificationCenterBottomSheet(
                     }
 
                     NotificationCenterSection.DISCENTE -> {
-                        val discenteEnabledCount = listOf(
-                            sigaaNotificacoes.saldoRuBaixoAlerta,
-                            sigaaNotificacoes.extratoRuMovimentacaoAlerta,
-                            sigaaNotificacoes.boletimAlteradoAlerta,
-                            sigaaNotificacoes.indicesAlteradosAlerta,
-                        ).count { it }
                         val discenteChecked = sigaaNotificacoes.habilitado && sigaaNotificacoes.discenteHabilitado
 
                         NotificationSectionCard(
                             icon = Icons.Rounded.Person,
                             title = "Painel Discente",
-                            subtitle = if (discenteChecked) {
-                                "$discenteEnabledCount alertas ativos"
-                            } else {
-                                "Saldo baixo RU, extrato, boletim e índices (IRA/MP)"
-                            },
+                            subtitle = "Saldo baixo RU, extrato, boletim e índices (IRA/MP)",
                             checked = discenteChecked,
                             expanded = if (isScopedToSingleScreen) true else expandedDiscente,
                             collapsible = !isScopedToSingleScreen,
@@ -803,7 +775,7 @@ fun NotificationCenterBottomSheet(
                     }
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = "Define com que frequência o app consulta o SIGAA fechado para avisar de novidades remotas.",
+                        text = "Frequência para verificar novidades do SIGAA em segundo plano.",
                         style = typography.label,
                         color = colors.muted,
                     )
@@ -893,21 +865,13 @@ private fun NotificationSectionCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    Text(
-                        text = title,
-                        style = typography.title,
-                        color = colors.ink,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    if (checked) {
-                        StatusTag(text = "Ativo", tone = StatusTagTone.INVERTED)
-                    }
-                }
+                Text(
+                    text = title,
+                    style = typography.title,
+                    color = colors.ink,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
                 Text(
                     text = subtitle,
                     style = typography.label,

@@ -125,7 +125,7 @@ fun TurmasScreen(
             title = "Aulas & Turmas",
             subtitle = {
                 val subtitleText = when {
-                    semestreHeader != null -> "Semestre $semestreHeader · Horário Oficial"
+                    semestreHeader != null -> "Semestre $semestreHeader"
                     uiState.authState is AuthState.Authenticated || isEssentialSyncing -> "Semestre Atual · SIGAA"
                     else -> "Conecte sua conta SIGAA para sincronizar"
                 }
@@ -407,7 +407,6 @@ fun TurmasScreen(
                         OfflineOriginStrip(
                             origin = synced.origin,
                             syncedAtEpochMillis = synced.syncedAtEpochMillis,
-                            extraNote = "${turmasList.size} turma(s)",
                         )
                     }
                 }

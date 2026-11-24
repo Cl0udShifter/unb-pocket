@@ -978,21 +978,24 @@ private fun RuBalanceFrontFace(
                 textAlign = TextAlign.Center,
             )
             if (saldo != null) {
-                Spacer(modifier = Modifier.height(4.dp))
-                val groupLabel = "${saldo.grupoAcesso.roman} · ${saldo.grupoAcesso.descricao}"
-                val restantes = saldo.refeicoesRestantes
-                val remainingText = when {
-                    restantes == null -> null
-                    restantes.gratuito -> "Gratuidade ativa"
-                    else -> "≈ ${restantes.almocosOuJantaresRestantes} almoço(s)/jantar(es)"
-                }
+                Spacer(modifier = Modifier.height(6.dp))
                 Text(
-                    text = listOfNotNull(groupLabel, remainingText).joinToString(" · "),
+                    text = Formatters.formatRuGroupSummary(saldo.grupoAcesso),
                     style = typography.label,
                     color = colors.muted,
                     modifier = Modifier.fillMaxWidth(),
                     textAlign = TextAlign.Center,
                 )
+                Formatters.formatRuRemainingMealsSummary(saldo.refeicoesRestantes)?.let { remainingText ->
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = remainingText,
+                        style = typography.label.copy(fontWeight = FontWeight.Medium),
+                        color = colors.ink,
+                        modifier = Modifier.fillMaxWidth(),
+                        textAlign = TextAlign.Center,
+                    )
+                }
             }
         }
     }

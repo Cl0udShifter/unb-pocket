@@ -3,7 +3,9 @@ package com.unbpocket.app.ui.common
 import com.unbpocket.core.model.common.DataOrigin
 import com.unbpocket.core.model.ru.Alergenico
 import com.unbpocket.core.model.ru.CardapioDiaRu
+import com.unbpocket.core.model.ru.GrupoAcessoRu
 import com.unbpocket.core.model.ru.ItemCardapioRu
+import com.unbpocket.core.model.ru.RefeicoesRestantes
 import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.DiaSemanaSigaa
 import com.unbpocket.core.model.turmas.HorarioSlot
@@ -78,6 +80,25 @@ object Formatters {
         val reaisStr = reais.toString().reversed().chunked(3).joinToString(".").reversed()
         val centsStr = cents.toString().padStart(2, '0')
         return "${sign}R$ $reaisStr,$centsStr"
+    }
+
+    fun formatRuGroupSummary(grupo: GrupoAcessoRu): String = when (grupo) {
+        GrupoAcessoRu.GRUPO_1 -> "Grupo I · Assistência estudantil"
+        GrupoAcessoRu.GRUPO_2 -> "Grupo II · Graduação e pós-graduação"
+        GrupoAcessoRu.GRUPO_3 -> "Grupo III · Servidores e visitantes"
+        GrupoAcessoRu.GRUPO_4 -> "Grupo IV · Escola pública"
+        GrupoAcessoRu.EXECUTIVO -> "Restaurante Executivo"
+        GrupoAcessoRu.DESCONHECIDO -> "Grupo não identificado"
+    }
+
+    fun formatRuRemainingMealsSummary(restantes: RefeicoesRestantes?): String? {
+        if (restantes == null) return null
+        if (restantes.gratuito) return "Gratuidade ativa"
+        return when (val count = restantes.almocosOuJantaresRestantes) {
+            in Int.MIN_VALUE..0 -> "Saldo insuficiente para uma refeição"
+            1 -> "Rende cerca de 1 almoço ou jantar"
+            else -> "Rende cerca de $count almoços ou jantares"
+        }
     }
 
     fun formatOriginSummary(origin: DataOrigin, syncedAtEpochMillis: Long): String {
