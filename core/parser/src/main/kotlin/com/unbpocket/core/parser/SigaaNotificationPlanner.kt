@@ -34,6 +34,7 @@ data class ScheduledSigaaReminder(
     val notificacao: SigaaNotificacaoConteudo,
     val triggerAtEpochMillis: Long,
     val eventAtEpochMillis: Long,
+    val eventEndAtEpochMillis: Long = eventAtEpochMillis,
 )
 
 /**
@@ -113,7 +114,9 @@ data class SigaaDiffResult(
  * em segundo plano para Aulas & Turmas e Painel Discente.
  */
 object SigaaNotificationPlanner {
-    const val TRIGGER_GRACE_WINDOW_MILLIS: Long = 15 * 60 * 1000L
+    const val TRIGGER_GRACE_WINDOW_MILLIS: Long = 120 * 60 * 1000L
+    const val CLASS_CATCHUP_WINDOW_MILLIS: Long = 75 * 60 * 1000L
+    private const val CLASS_POST_START_CATCHUP_MILLIS: Long = 45 * 60 * 1000L
 
     private val brasiliaZone: ZoneId = RuMenuFreshness.brasiliaZone
     private val ptBrLocale: Locale = Locale.forLanguageTag("pt-BR")
@@ -194,9 +197,18 @@ object SigaaNotificationPlanner {
         alreadySentKeys: Set<String>,
         nowEpochMillis: Long,
     ): List<ScheduledSigaaReminder> = reminders.filter { reminder ->
+        val catchupCutoff = when (reminder.notificacao.tipo) {
+            SigaaNotificacaoTipo.AULA_PROXIMA -> minOf(
+                reminder.triggerAtEpochMillis + CLASS_CATCHUP_WINDOW_MILLIS,
+                reminder.eventEndAtEpochMillis,
+            )
+            else -> minOf(
+                reminder.triggerAtEpochMillis + TRIGGER_GRACE_WINDOW_MILLIS,
+                reminder.eventEndAtEpochMillis,
+            )
+        }
         reminder.triggerAtEpochMillis <= nowEpochMillis &&
-            reminder.triggerAtEpochMillis >= nowEpochMillis - TRIGGER_GRACE_WINDOW_MILLIS &&
-            reminder.eventAtEpochMillis > nowEpochMillis &&
+            nowEpochMillis <= catchupCutoff &&
             reminder.notificacao.dedupKey !in alreadySentKeys
     }
 
@@ -618,10 +630,18 @@ object SigaaNotificationPlanner {
             for (block in blocks) {
                 val classStart = LocalDateTime.of(targetDate, block.start)
                 val classStartEpoch = classStart.atZone(brasiliaZone).toInstant().toEpochMilli()
+                val classBlockEndEpoch = LocalDateTime.of(targetDate, block.end)
+                    .atZone(brasiliaZone)
+                    .toInstant()
+                    .toEpochMilli()
+                val classMaxCatchupEpoch = minOf(
+                    classBlockEndEpoch,
+                    classStartEpoch + CLASS_POST_START_CATCHUP_MILLIS,
+                )
                 val triggerAt = classStart.minusMinutes(leadMinutes.toLong())
                 val triggerEpoch = triggerAt.atZone(brasiliaZone).toInstant().toEpochMilli()
 
-                if (classStartEpoch <= nowEpochMillis) continue
+                if (classMaxCatchupEpoch <= nowEpochMillis) continue
                 if (triggerEpoch < minTriggerEpochMillis || triggerEpoch > endEpochMillis) continue
 
                 val startStr = block.start.format(timeFormatter)
@@ -632,18 +652,24 @@ object SigaaNotificationPlanner {
                 } else {
                     "$startStr - $endStr"
                 }
+                val titulo = if (nowEpochMillis >= classStartEpoch) {
+                    "Aula iniciou às $startStr: ${turma.nomeDisciplina}"
+                } else {
+                    "Aula às $startStr: ${turma.nomeDisciplina}"
+                }
                 val dedupKey = "aula:${turma.idTurma}:$targetDate:$startStr:$leadMinutes"
                 result += ScheduledSigaaReminder(
                     notificacao = SigaaNotificacaoConteudo(
                         dedupKey = dedupKey,
                         notificationId = stableNotificationId(dedupKey),
                         tipo = SigaaNotificacaoTipo.AULA_PROXIMA,
-                        titulo = "Aula às $startStr: ${turma.nomeDisciplina}",
+                        titulo = titulo,
                         resumo = resumo,
                         triggerAtEpochMillis = triggerEpoch,
                     ),
                     triggerAtEpochMillis = triggerEpoch,
                     eventAtEpochMillis = classStartEpoch,
+                    eventEndAtEpochMillis = classMaxCatchupEpoch,
                 )
             }
         }
@@ -662,7 +688,18 @@ object SigaaNotificationPlanner {
         val examTime = avaliacao.horaTexto?.let(::parseFirstTime)
         val eventTime = examTime ?: LocalTime.of(8, 0)
         val eventEpoch = LocalDateTime.of(examDate, eventTime).atZone(brasiliaZone).toInstant().toEpochMilli()
-        if (eventEpoch <= nowEpochMillis) return emptyList()
+        val sameDayCatchupEndEpoch = if (examTime == null) {
+            maxOf(
+                eventEpoch,
+                LocalDateTime.of(examDate, LocalTime.of(7, 0))
+                    .atZone(brasiliaZone)
+                    .toInstant()
+                    .toEpochMilli() + TRIGGER_GRACE_WINDOW_MILLIS,
+            )
+        } else {
+            eventEpoch
+        }
+        if (sameDayCatchupEndEpoch <= nowEpochMillis) return emptyList()
 
         val reminders = mutableListOf<ScheduledSigaaReminder>()
         val timeText = examTime?.format(timeFormatter)
@@ -719,6 +756,7 @@ object SigaaNotificationPlanner {
                 ),
                 triggerAtEpochMillis = sameDayEpoch,
                 eventAtEpochMillis = eventEpoch,
+                eventEndAtEpochMillis = sameDayCatchupEndEpoch,
             )
         }
 

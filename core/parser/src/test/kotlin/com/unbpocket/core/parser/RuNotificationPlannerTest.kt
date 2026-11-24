@@ -167,13 +167,71 @@ class RuNotificationPlannerTest {
             ),
         )
 
-        // Fallback image/PDF-only -> null
+        // Fallback image/PDF-only -> null em buildNotificationContent, mas fallback garantido em buildNotificationContentOrFallback
         assertNull(
             RuNotificationPlanner.buildNotificationContent(
                 cardapio = sampleWeekMenu(status = CardapioParserStatus.FALLBACK_IMAGE_ONLY),
                 preferencias = prefs,
                 refeicao = TipoRefeicao.ALMOCO,
                 nowEpochMillis = mondayLunchMillis,
+            ),
+        )
+        val fallbackContent = RuNotificationPlanner.buildNotificationContentOrFallback(
+            cardapio = sampleWeekMenu(status = CardapioParserStatus.FALLBACK_IMAGE_ONLY),
+            preferencias = prefs,
+            refeicao = TipoRefeicao.ALMOCO,
+            nowEpochMillis = mondayLunchMillis,
+        )
+        assertNotNull(fallbackContent)
+        assertEquals(CampusRu.DARCY_RIBEIRO, fallbackContent!!.campus)
+        assertEquals(TipoRefeicao.ALMOCO, fallbackContent.refeicao)
+        assertTrue(fallbackContent.titulo.contains(CampusRu.DARCY_RIBEIRO.displayName))
+        assertTrue(fallbackContent.mensagem.isNotBlank())
+
+        val offlineFallback = RuNotificationPlanner.buildNotificationContentOrFallback(
+            cardapio = null,
+            preferencias = prefs,
+            refeicao = TipoRefeicao.ALMOCO,
+            nowEpochMillis = mondayLunchMillis,
+        )
+        assertNotNull(offlineFallback)
+    }
+
+    @Test
+    fun `findCatchUpMeal recovers missed meal within window and skips past deadline or already sent`() {
+        val mondayConfig = RuNotificacaoConfig(
+            habilitado = true,
+            refeicoesPorDia = mapOf(
+                DiaSemanaRu.SEGUNDA to setOf(TipoRefeicao.ALMOCO, TipoRefeicao.JANTAR),
+            ),
+        )
+
+        // Alarme das 16:00 atrasou e sistema acordou as 17:38 (ainda antes das 19:30)
+        val mondayLateAfternoon = millisAtBrasilia(2026, 11, 23, 17, 38)
+        val missedDinner = RuNotificationPlanner.findCatchUpMeal(
+            config = mondayConfig,
+            alreadySentKeys = emptySet(),
+            nowEpochMillis = mondayLateAfternoon,
+        )
+        assertNotNull(missedDinner)
+        assertEquals(TipoRefeicao.JANTAR, missedDinner!!.refeicao)
+
+        // Depois de marcado como enviado no mesmo dia, nao repete
+        val today = LocalDate.of(2026, 11, 23)
+        val sentDinner = RuNotificationPlanner.findCatchUpMeal(
+            config = mondayConfig,
+            alreadySentKeys = setOf(RuNotificationPlanner.sentSlotKey(today, TipoRefeicao.JANTAR)),
+            nowEpochMillis = mondayLateAfternoon,
+        )
+        assertNull(sentDinner)
+
+        // Apos encerrar janela do jantar (20:15), nao dispara mais hoje
+        val pastDeadline = millisAtBrasilia(2026, 11, 23, 20, 15)
+        assertNull(
+            RuNotificationPlanner.findCatchUpMeal(
+                config = mondayConfig,
+                alreadySentKeys = emptySet(),
+                nowEpochMillis = pastDeadline,
             ),
         )
     }

@@ -1317,6 +1317,124 @@ class UnbPocketCoreIntegrationTest {
         assertTrue(core.ru.observePreferencias().first().notificacoes.habilitado)
     }
 
+    @Test
+    fun silentRefreshAllDelayedClassCatchUpAndRuFallbackDeliverNotificationsReliably() = runTest {
+        val baseUrl = server.url("").toString().trimEnd('/')
+        var currentExtratoSaldo = "R$ 8,65"
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    path.contains("/wp-json/wp/v2/pages/12853") -> MockResponse().setResponseCode(200).setBody(
+                        """
+                        {
+                          "modified_gmt": "2026-11-23T09:00:00",
+                          "content": {
+                            "rendered": "<a href='$baseUrl/wp-content/uploads/darcy.pdf'>Darcy</a><img src='$baseUrl/wp-content/uploads/darcy-img.png' alt='Darcy' />"
+                          }
+                        }
+                        """.trimIndent(),
+                    )
+                    path.endsWith("/darcy.pdf") -> pdfResponse("%PDF-1.4 image only menu")
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "GET" ->
+                        redirect("$baseUrl/sso-server/login?service=sigaa")
+                    path.startsWith("/sso-server/login") && request.method == "GET" ->
+                        latin1Response(casLoginHtml())
+                    path.startsWith("/sso-server/login") && request.method == "POST" ->
+                        redirect("$baseUrl/sigaa/verTelaAviso.do")
+                    path.startsWith("/sigaa/verTelaAviso.do") ->
+                        latin1Response("<html><body><p>Comunicado geral SIGAA</p></body></html>")
+                    path.startsWith("/sigaa/verPortalDiscente.do") -> latin1Response(discenteHomeHtml())
+                    path.startsWith("/sigaa/portais/discente/discente.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formExibirExtrato") -> latin1Response(
+                                extratoRuHtml().replace("R$ 8,65", currentExtratoSaldo),
+                            )
+                            body.contains("atestadoMatriculaUnb") -> latin1Response(atestadoHtml())
+                            body.contains("relatorioNotasAluno") -> latin1Response(boletimHtml())
+                            body.contains("emitiCarteiraEstudantilUnb") -> pdfResponse("%PDF-1.4 carteirinha")
+                            body.contains("frontEndIdTurma") -> latin1Response(avaHomeHtml())
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+                    path.startsWith("/sigaa/ava/index.jsf") && request.method == "POST" -> {
+                        when {
+                            body.contains("formMenu%3Afreq") -> latin1Response(frequenciaHtml())
+                            body.contains("formMenu%3Anotas") -> latin1Response(notasIndisponiveisHtml())
+                            else -> MockResponse().setResponseCode(400)
+                        }
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        // Segunda 23/11/2026 08:10 Brasilia (10 min apos o inicio da aula 24M12 das 08:00)
+        fakeClock = ZonedDateTime.of(2026, 11, 23, 8, 10, 0, 0, ZoneId.of("America/Sao_Paulo"))
+            .toInstant().toEpochMilli()
+
+        val postedNotifications = mutableListOf<SigaaNotificacaoConteudo>()
+        val core = createCore(
+            sigaaNotificationPoster = SigaaNotificationPosterPort { postedNotifications += it },
+        )
+        pdfExtractor.carteirinhaResult = CoreResult.Success(buildSyntheticCarteirinhaInput())
+        pdfExtractor.ruPagesResult = CoreResult.Success(emptyList())
+
+        // 1. RU fallback garante envio quando cardapio oficial vem apenas em imagem/sem texto estruturado
+        assertTrue(
+            core.ru.setNotificacoesConfig(
+                RuNotificacaoConfig(
+                    habilitado = true,
+                    refeicoesPorDia = mapOf(DiaSemanaRu.SEGUNDA to setOf(TipoRefeicao.ALMOCO)),
+                ),
+            ) is CoreResult.Success,
+        )
+        val ruContent = (core.ru.prepareNotificacaoRefeicao(TipoRefeicao.ALMOCO, fakeClock) as CoreResult.Success).value
+        assertNotNull(ruContent)
+        assertTrue(ruContent!!.titulo.contains(CampusRu.DARCY_RIBEIRO.displayName))
+        assertTrue(ruContent.mensagem.isNotBlank())
+
+        // 2. silentRefreshAll notifica saldo RU baixo em vez de engolir diffs silenciosamente
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+        assertTrue(core.syncPortalHome(includeSaldoRu = true) is CoreResult.Success)
+        assertTrue(
+            core.setSigaaNotificacoesConfig(
+                SigaaNotificacaoConfig(
+                    habilitado = true,
+                    antecedenciaAulaMinutos = 15,
+                    provasETarefasLembrete = false,
+                    saldoRuBaixoAlerta = true,
+                    limiteRefeicoesRuBaixo = 2,
+                    userConfigured = true,
+                ),
+            ) is CoreResult.Success,
+        )
+        postedNotifications.clear()
+
+        currentExtratoSaldo = "R$ 5,00"
+        fakeClock += 60_000L
+        assertTrue(core.silentRefreshAll(includeTurmaDetails = false) is CoreResult.Success)
+        withContext(Dispatchers.Default) {
+            withTimeout(5_000) {
+                core.preloadProgress.first { it.phase == PreloadPhase.COMPLETED }
+            }
+        }
+        assertTrue(postedNotifications.any { it.tipo == SigaaNotificacaoTipo.RU_SALDO_BAIXO })
+
+        // 3. Lembrete de aula das 08:00 (com gatilho as 07:45) e recuperado as 08:11 sem duplicar
+        postedNotifications.clear()
+        val nextTrigger = UnbPocketCoreFactory.prepareLocalRemindersForCore(core, postDueNow = true)
+        assertNotNull(nextTrigger)
+        assertEquals(listOf(SigaaNotificacaoTipo.AULA_PROXIMA), postedNotifications.map { it.tipo })
+        assertTrue(postedNotifications.first().titulo.contains("08:00"))
+
+        postedNotifications.clear()
+        UnbPocketCoreFactory.prepareLocalRemindersForCore(core, postDueNow = true)
+        assertTrue(postedNotifications.isEmpty())
+    }
+
     private fun redirect(location: String) =
         MockResponse().setResponseCode(302).setHeader("Location", location)
 

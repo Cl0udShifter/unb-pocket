@@ -1,13 +1,17 @@
 package com.unbpocket.app.ui.notifications
 
 import android.Manifest
+import android.app.AlarmManager
 import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
+import android.os.PowerManager
 import android.provider.Settings
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
@@ -117,6 +121,7 @@ fun NotificationCenterBottomSheet(
     onSetSyncInterval: (SigaaSyncIntervalHours) -> Unit,
     onSetSomenteWifi: (Boolean) -> Unit,
     onDismiss: () -> Unit,
+    onResyncSchedules: () -> Unit = {},
 ) {
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
@@ -147,7 +152,14 @@ fun NotificationCenterBottomSheet(
     val notificationManager = remember(context) {
         context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
     }
-    val hasRuntimePermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    val alarmManager = remember(context) {
+        context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager
+    }
+    val powerManager = remember(context) {
+        context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+    }
+
+    fun checkRuntimePermission(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         ContextCompat.checkSelfPermission(
             context,
             Manifest.permission.POST_NOTIFICATIONS,
@@ -155,16 +167,52 @@ fun NotificationCenterBottomSheet(
     } else {
         true
     }
-    val systemNotificationsEnabled = notificationManager?.areNotificationsEnabled() ?: true
+
+    fun checkExactAlarms(): Boolean = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        alarmManager?.canScheduleExactAlarms() ?: true
+    } else {
+        true
+    }
+
+    fun checkBatteryUnrestricted(): Boolean =
+        powerManager?.isIgnoringBatteryOptimizations(context.packageName) ?: true
+
+    var hasRuntimePermission by remember { mutableStateOf(checkRuntimePermission()) }
+    var systemNotificationsEnabled by remember {
+        mutableStateOf(notificationManager?.areNotificationsEnabled() ?: true)
+    }
+    var canScheduleExactAlarms by remember { mutableStateOf(checkExactAlarms()) }
+    var isIgnoringBatteryOptimizations by remember { mutableStateOf(checkBatteryUnrestricted()) }
+
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        val nextRuntime = checkRuntimePermission()
+        val nextSystem = notificationManager?.areNotificationsEnabled() ?: true
+        val nextExact = checkExactAlarms()
+        val nextBattery = checkBatteryUnrestricted()
+        val regainedCapability = (!canScheduleExactAlarms && nextExact) ||
+            (!hasRuntimePermission && nextRuntime) ||
+            (!systemNotificationsEnabled && nextSystem) ||
+            (!isIgnoringBatteryOptimizations && nextBattery)
+        hasRuntimePermission = nextRuntime
+        systemNotificationsEnabled = nextSystem
+        canScheduleExactAlarms = nextExact
+        isIgnoringBatteryOptimizations = nextBattery
+        if (regainedCapability) {
+            onResyncSchedules()
+        }
+    }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { granted ->
         val action = pendingPermissionAction
         pendingPermissionAction = null
+        hasRuntimePermission = checkRuntimePermission()
+        systemNotificationsEnabled = notificationManager?.areNotificationsEnabled() ?: true
         if (granted) {
             permissionDeniedWarning = false
             action?.invoke()
+            onResyncSchedules()
         } else {
             permissionDeniedWarning = true
         }
@@ -177,6 +225,7 @@ fun NotificationCenterBottomSheet(
                 Manifest.permission.POST_NOTIFICATIONS,
             ) == PackageManager.PERMISSION_GRANTED
             if (granted) {
+                hasRuntimePermission = true
                 permissionDeniedWarning = false
                 action()
             } else {
@@ -192,6 +241,32 @@ fun NotificationCenterBottomSheet(
         val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
         }
+        val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+        }
+        runCatching { context.startActivity(intent) }
+            .onFailure { runCatching { context.startActivity(fallback) } }
+        Unit
+    }
+
+    val openExactAlarmSettings = {
+        val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+            data = Uri.fromParts("package", context.packageName, null)
+        }
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                data = Uri.fromParts("package", context.packageName, null)
+            }
+        } else {
+            fallback
+        }
+        runCatching { context.startActivity(intent) }
+            .onFailure { runCatching { context.startActivity(fallback) } }
+        Unit
+    }
+
+    val openBatteryOptimizationSettings = {
+        val intent = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
             data = Uri.fromParts("package", context.packageName, null)
         }
@@ -300,6 +375,71 @@ fun NotificationCenterBottomSheet(
                                     color = colors.ink,
                                 )
                             }
+                        }
+                    }
+                }
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                !canScheduleExactAlarms &&
+                (ruNotificacoes.habilitado || sigaaNotificacoes.hasAnyLocalScheduleEnabled)
+            ) {
+                InnerTile(
+                    containerColor = colors.warningBg,
+                    borderColor = colors.warningInk.copy(alpha = 0.3f),
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Alarmes exatos desativados no Android",
+                            style = typography.titleStrong,
+                            color = colors.warningInk,
+                        )
+                        Text(
+                            text = "Sem esta permissão, o sistema pode atrasar avisos do RU, aulas e provas em até 1 hora.",
+                            style = typography.label,
+                            color = colors.warningInk,
+                        )
+                        TextButton(
+                            onClick = openExactAlarmSettings,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "Permitir horários exatos",
+                                style = typography.label.copy(fontWeight = FontWeight.SemiBold),
+                                color = colors.ink,
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!isIgnoringBatteryOptimizations &&
+                (ruNotificacoes.habilitado || sigaaNotificacoes.hasAnyEnabled)
+            ) {
+                InnerTile(
+                    containerColor = colors.surfaceRaised,
+                    borderColor = colors.border,
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = "Restrição em segundo plano ativa",
+                            style = typography.titleStrong,
+                            color = colors.ink,
+                        )
+                        Text(
+                            text = "A economia de bateria do sistema pode atrasar sincronizações com o app fechado. Recomendado selecionar \"Sem restrições\".",
+                            style = typography.label,
+                            color = colors.muted,
+                        )
+                        TextButton(
+                            onClick = openBatteryOptimizationSettings,
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "Ajustar economia de bateria",
+                                style = typography.label.copy(fontWeight = FontWeight.SemiBold),
+                                color = colors.ink,
+                            )
                         }
                     }
                 }

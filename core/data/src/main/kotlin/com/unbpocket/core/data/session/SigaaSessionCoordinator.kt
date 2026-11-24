@@ -27,6 +27,7 @@ class SigaaSessionCoordinator(
     private val fileStore: FileStore,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
     private val onLogoutHook: suspend (clearCachedData: Boolean) -> Unit = {},
+    private val diagLog: (String) -> Unit = {},
 ) : AuthRepository {
     private val _authState = MutableStateFlow<AuthState>(AuthState.Unauthenticated)
     override val authState: StateFlow<AuthState> = _authState.asStateFlow()
@@ -129,17 +130,23 @@ class SigaaSessionCoordinator(
             return CoreResult.Success(current)
         }
 
-        val saved = vault.load() ?: return CoreResult.Failure(
-            if (current is AuthState.Authenticated) CoreError.SessionExpired else CoreError.NoStoredCredentials,
-        )
+        val saved = vault.load()
+        if (saved == null) {
+            diagLog("ensureValidSessionLocked: vault.exists=${vault.exists()} vault.load=null")
+            return CoreResult.Failure(
+                if (current is AuthState.Authenticated) CoreError.SessionExpired else CoreError.NoStoredCredentials,
+            )
+        }
 
-        return loginLocked(
+        val loginRes = loginLocked(
             CredentialsInput(
                 matricula = saved.matricula,
                 password = saved.password,
                 rememberCredentials = true,
             ),
         )
+        diagLog("ensureValidSessionLocked: loginLocked=${loginRes is CoreResult.Success}")
+        return loginRes
     }
 
     private suspend fun loginLocked(credentials: CredentialsInput): CoreResult<AuthState.Authenticated> {
@@ -211,8 +218,14 @@ class SigaaSessionCoordinator(
             sessionExpiresAtEpochMillis = clockMillis() + SESSION_TIMEOUT_MILLIS,
             hasStoredCredentials = credentials.rememberCredentials,
         )
-        freshLoginPortalHtml = portalHtml
-        freshLoginCapturedAtMillis = clockMillis()
+        if (idDiscente != null) {
+            freshLoginPortalHtml = portalHtml
+            freshLoginCapturedAtMillis = clockMillis()
+        } else {
+            freshLoginPortalHtml = null
+            freshLoginCapturedAtMillis = 0L
+        }
+        diagLog("loginLocked authenticated idDiscente=$idDiscente cached=${idDiscente != null}")
         _authState.value = authenticated
         return CoreResult.Success(authenticated)
     }

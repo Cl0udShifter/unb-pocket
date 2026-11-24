@@ -10,6 +10,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
+import android.util.Log
 import com.unbpocket.core.data.R
 import com.unbpocket.core.data.local.SigaaNotificationPosterPort
 import com.unbpocket.core.model.notification.SigaaNotificacaoConteudo
@@ -27,11 +28,15 @@ class SigaaNotificationPoster(
     override fun post(notifications: List<SigaaNotificacaoConteudo>) {
         if (notifications.isEmpty()) return
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
-        if (!hasPermission(context, manager)) return
+        if (!hasPermission(context, manager)) {
+            Log.w(TAG, "SIGAA notification skipped (permission or system notifications disabled) count=${notifications.size}")
+            return
+        }
 
         ensureChannels(manager)
         notifications.forEach { content ->
             postSingle(context, manager, content)
+            Log.i(TAG, "Posted SIGAA notification id=${content.notificationId} tipo=${content.tipo.name} title=${content.titulo}")
         }
     }
 
@@ -82,6 +87,7 @@ class SigaaNotificationPoster(
     }
 
     companion object {
+        private const val TAG: String = "UnbPocketNotif"
         const val CHANNEL_TURMAS_ID: String = "unb_pocket_sigaa_turmas"
         const val CHANNEL_DISCENTE_ID: String = "unb_pocket_sigaa_discente"
         private const val REQUEST_CODE_BASE: Int = 5000

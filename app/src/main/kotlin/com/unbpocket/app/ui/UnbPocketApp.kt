@@ -338,6 +338,12 @@ fun UnbPocketApp(
             onSetIndicesAlteradosAlerta = authViewModel::setIndicesAlteradosAlerta,
             onSetSyncInterval = authViewModel::setSigaaSyncInterval,
             onSetSomenteWifi = authViewModel::setSigaaSomenteWifi,
+            onResyncSchedules = {
+                if (ruUiState.preferencias.notificacoes.habilitado) {
+                    ruViewModel.setNotificacoesHabilitadas(true)
+                }
+                authViewModel.resyncSigaaNotificacoesSchedule()
+            },
             onDismiss = { showNotificationCenter = false },
         )
     }

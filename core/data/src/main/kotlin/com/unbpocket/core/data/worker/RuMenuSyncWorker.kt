@@ -10,8 +10,10 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.unbpocket.core.data.UnbPocketCoreFactory
+import com.unbpocket.core.data.notification.RuMealAlarmScheduler
 import com.unbpocket.core.model.common.CoreError
 import com.unbpocket.core.model.common.CoreResult
+import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
 /**
@@ -23,7 +25,10 @@ class RuMenuSyncWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val core = UnbPocketCoreFactory.create(applicationContext)
-        return when (val result = core.ru.syncCardapiosIfNeeded(forceCheck = true, includeExtras = true)) {
+        val result = core.ru.syncCardapiosIfNeeded(forceCheck = true, includeExtras = true)
+        val prefs = core.ru.observePreferencias().first()
+        RuMealAlarmScheduler.catchUpMissedTodayMealIfNeeded(applicationContext, prefs.notificacoes)
+        return when (result) {
             is CoreResult.Success -> {
                 val hasRetryableFailure = result.value.failedCampi.values.any { error ->
                     error.isRetryableRemoteError()

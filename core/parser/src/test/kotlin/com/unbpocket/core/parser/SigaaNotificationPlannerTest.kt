@@ -394,4 +394,90 @@ class SigaaNotificationPlannerTest {
         )
         assertFalse(freeRun.notifications.any { it.tipo == SigaaNotificacaoTipo.RU_SALDO_BAIXO })
     }
+
+    @Test
+    fun `extractDueReminders recovers delayed class and exam reminders under Android 14 inexact alarm window`() {
+        // Segunda 23/11/2026 aula 08:00-09:50 com antecedencia 15 min -> gatilho ideal 07:45
+        val turma = sampleTurma(horarioRaw = "2M12")
+        val config = SigaaNotificacaoConfig(
+            habilitado = true,
+            turmasHabilitado = true,
+            aulasLembrete = true,
+            antecedenciaAulaMinutos = 15,
+            provasETarefasLembrete = true,
+        )
+        val exam = AvaliacaoTurma(dataTexto = "24/11/2026", horaTexto = null, descricao = "Prova Final")
+
+        // Atraso de 25 min pelo alarme inexato (08:10, ja apos o inicio da aula das 08:00)
+        val delayedClassNow = millisBrasilia(2026, 11, 23, 8, 10)
+        val classReminders = SigaaNotificationPlanner.buildUpcomingReminders(
+            turmas = listOf(turma),
+            avaliacoesByTurma = emptyMap(),
+            tarefasByTurma = emptyMap(),
+            config = config,
+            nowEpochMillis = delayedClassNow,
+            horizonDays = 1,
+        )
+        val dueClass = SigaaNotificationPlanner.extractDueReminders(
+            reminders = classReminders,
+            alreadySentKeys = emptySet(),
+            nowEpochMillis = delayedClassNow,
+        )
+        assertEquals(1, dueClass.size)
+        assertTrue(dueClass.first().notificacao.titulo.contains("Aula iniciou às 08:00"))
+
+        // Apos 45 min do inicio da aula (08:50), nao dispara lembrete tardio antigo
+        val tooLateClassNow = millisBrasilia(2026, 11, 23, 8, 50)
+        val expiredReminders = SigaaNotificationPlanner.buildUpcomingReminders(
+            turmas = listOf(turma),
+            avaliacoesByTurma = emptyMap(),
+            tarefasByTurma = emptyMap(),
+            config = config,
+            nowEpochMillis = tooLateClassNow,
+            horizonDays = 1,
+        )
+        assertTrue(
+            SigaaNotificationPlanner.extractDueReminders(
+                reminders = expiredReminders,
+                alreadySentKeys = emptySet(),
+                nowEpochMillis = tooLateClassNow,
+            ).isEmpty(),
+        )
+
+        // Vespera de prova as 20:00 atrasada em 70 min (21:10) ainda dispara na janela de 120 min
+        val delayedEveNow = millisBrasilia(2026, 11, 23, 21, 10)
+        val examEveReminders = SigaaNotificationPlanner.buildUpcomingReminders(
+            turmas = listOf(turma),
+            avaliacoesByTurma = mapOf("fe_100" to listOf(exam)),
+            tarefasByTurma = emptyMap(),
+            config = config.copy(aulasLembrete = false),
+            nowEpochMillis = delayedEveNow,
+            horizonDays = 2,
+        )
+        val dueExamEve = SigaaNotificationPlanner.extractDueReminders(
+            reminders = examEveReminders,
+            alreadySentKeys = emptySet(),
+            nowEpochMillis = delayedEveNow,
+        )
+        assertEquals(1, dueExamEve.size)
+        assertTrue(dueExamEve.first().notificacao.titulo.contains("Avaliação amanhã"))
+
+        // Prova no dia sem hora definida (gatilho 07:00) atrasada ate 08:15 ainda dispara
+        val delayedSameDayNow = millisBrasilia(2026, 11, 24, 8, 15)
+        val sameDayReminders = SigaaNotificationPlanner.buildUpcomingReminders(
+            turmas = listOf(turma),
+            avaliacoesByTurma = mapOf("fe_100" to listOf(exam)),
+            tarefasByTurma = emptyMap(),
+            config = config.copy(aulasLembrete = false),
+            nowEpochMillis = delayedSameDayNow,
+            horizonDays = 2,
+        )
+        val dueSameDay = SigaaNotificationPlanner.extractDueReminders(
+            reminders = sameDayReminders,
+            alreadySentKeys = emptySet(),
+            nowEpochMillis = delayedSameDayNow,
+        )
+        assertEquals(1, dueSameDay.size)
+        assertTrue(dueSameDay.first().notificacao.titulo.contains("Avaliação hoje"))
+    }
 }

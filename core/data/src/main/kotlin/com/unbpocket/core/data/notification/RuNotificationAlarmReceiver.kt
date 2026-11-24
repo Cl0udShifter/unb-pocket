@@ -3,6 +3,7 @@ package com.unbpocket.core.data.notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.unbpocket.core.data.local.CacheMappers
 import com.unbpocket.core.data.local.CardapioSemanalRuDto
 import com.unbpocket.core.data.local.RuPreferencesStore
@@ -29,7 +30,8 @@ class RuNotificationAlarmReceiver : BroadcastReceiver() {
             action == Intent.ACTION_BOOT_COMPLETED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == Intent.ACTION_TIME_CHANGED ||
-            action == Intent.ACTION_TIMEZONE_CHANGED
+            action == Intent.ACTION_TIMEZONE_CHANGED ||
+            action == ACTION_EXACT_ALARM_PERMISSION_CHANGED
         if (!isSupportedAction) return
 
         val appContext = context.applicationContext
@@ -38,38 +40,42 @@ class RuNotificationAlarmReceiver : BroadcastReceiver() {
 
         receiverScope.launch {
             try {
+                Log.i(TAG, "RU receiver triggered action=$action mealPageIndex=$mealPageIndex")
                 val prefs = RuPreferencesStore(appContext).preferencias.first()
-                RuMealAlarmScheduler(appContext).syncSchedule(prefs.notificacoes)
 
                 if (action == ACTION_MEAL_ALARM) {
                     val meal = TipoRefeicao.entries.firstOrNull { it.pageIndex == mealPageIndex }
-                        ?: return@launch
-                    val nowMillis = System.currentTimeMillis()
-                    val today = RuMenuFreshness.localDateInBrasilia(nowMillis)
-                    val dia = DiaSemanaRu.fromDayOfWeekIso(today.dayOfWeek.value) ?: return@launch
-                    if (!prefs.notificacoes.isEnabledFor(dia, meal)) return@launch
+                    if (meal != null) {
+                        val nowMillis = System.currentTimeMillis()
+                        val today = RuMenuFreshness.localDateInBrasilia(nowMillis)
+                        val dia = DiaSemanaRu.fromDayOfWeekIso(today.dayOfWeek.value)
+                        if (dia != null && prefs.notificacoes.isEnabledFor(dia, meal)) {
+                            val cacheStore = SnapshotCacheStore(UnbPocketDatabase.build(appContext).snapshotDao())
+                            val cachedMenu = cacheStore.get(
+                                cacheKey = SnapshotCacheStore.Keys.cardapio(prefs.campusSelecionado),
+                                serializer = CardapioSemanalRuDto.serializer(),
+                                fromDto = CacheMappers::fromDto,
+                            )?.value
 
-                    val cacheStore = SnapshotCacheStore(UnbPocketDatabase.build(appContext).snapshotDao())
-                    val cachedMenu = cacheStore.observe(
-                        cacheKey = SnapshotCacheStore.Keys.cardapio(prefs.campusSelecionado),
-                        serializer = CardapioSemanalRuDto.serializer(),
-                        fromDto = CacheMappers::fromDto,
-                    ).first()?.value
-
-                    if (cachedMenu != null && RuNotificationPlanner.findDayIndexForDate(cachedMenu, today) != null) {
-                        val content = RuNotificationPlanner.buildNotificationContent(
-                            cardapio = cachedMenu,
-                            preferencias = prefs,
-                            refeicao = meal,
-                            nowEpochMillis = nowMillis,
-                        )
-                        if (content != null) {
-                            RuMealNotificationPoster.post(appContext, content)
+                            val structured = RuNotificationPlanner.buildNotificationContent(
+                                cardapio = cachedMenu,
+                                preferencias = prefs,
+                                refeicao = meal,
+                                nowEpochMillis = nowMillis,
+                            )
+                            if (structured != null) {
+                                RuMealAlarmStateStore.markSent(appContext, today, meal, nowMillis)
+                                RuMealNotificationPoster.post(appContext, structured)
+                            } else {
+                                // Busca atualizacao remota no Worker e posta cardapio ou fallback garantido
+                                RuMealAlarmStateStore.markSent(appContext, today, meal, nowMillis)
+                                RuMealNotificationWorker.enqueue(appContext, meal)
+                            }
                         }
-                    } else {
-                        RuMealNotificationWorker.enqueue(appContext, meal)
                     }
                 }
+
+                RuMealAlarmScheduler(appContext).syncSchedule(prefs.notificacoes)
             } finally {
                 pendingResult.finish()
             }
@@ -77,7 +83,10 @@ class RuNotificationAlarmReceiver : BroadcastReceiver() {
     }
 
     companion object {
+        private const val TAG = "UnbPocketNotif"
         const val ACTION_MEAL_ALARM = "com.unbpocket.core.data.action.RU_MEAL_ALARM"
+        private const val ACTION_EXACT_ALARM_PERMISSION_CHANGED =
+            "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"
         const val EXTRA_MEAL_PAGE_INDEX = "meal_page_index"
         private val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }

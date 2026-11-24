@@ -108,7 +108,7 @@ class RuRepositoryImpl(
             }
         }
 
-        RuNotificationPlanner.buildNotificationContent(
+        RuNotificationPlanner.buildNotificationContentOrFallback(
             cardapio = cardapio,
             preferencias = prefs,
             refeicao = refeicao,

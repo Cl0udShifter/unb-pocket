@@ -471,6 +471,14 @@ class AuthViewModel(
         }
     }
 
+    fun resyncSigaaNotificacoesSchedule() {
+        val current = uiState.value.sigaaNotificacoes
+        if (!current.hasAnyEnabled) return
+        viewModelScope.launch {
+            core.setSigaaNotificacoesConfig(current)
+        }
+    }
+
     private fun updateSigaaNotificacoes(
         transform: (SigaaNotificacaoConfig) -> SigaaNotificacaoConfig,
     ) {

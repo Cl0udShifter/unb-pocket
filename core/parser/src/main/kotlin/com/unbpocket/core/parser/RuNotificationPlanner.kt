@@ -13,6 +13,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.LocalTime
 import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 
 data class ScheduledMealSlot(
     val dia: DiaSemanaRu,
@@ -31,10 +32,60 @@ object RuNotificationPlanner {
         TipoRefeicao.JANTAR,
     )
 
+    private val brDateFormatter: DateTimeFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+
     fun notificationTimeFor(refeicao: TipoRefeicao): LocalTime = when (refeicao) {
         TipoRefeicao.CAFE_DA_MANHA -> LocalTime.of(6, 0)
         TipoRefeicao.ALMOCO -> LocalTime.of(10, 0)
         TipoRefeicao.JANTAR -> LocalTime.of(16, 0)
+    }
+
+    fun catchUpDeadlineFor(refeicao: TipoRefeicao): LocalTime = when (refeicao) {
+        TipoRefeicao.CAFE_DA_MANHA -> LocalTime.of(9, 30)
+        TipoRefeicao.ALMOCO -> LocalTime.of(14, 0)
+        TipoRefeicao.JANTAR -> LocalTime.of(19, 30)
+    }
+
+    fun sentSlotKey(date: LocalDate, refeicao: TipoRefeicao): String = "${date}:${refeicao.name}"
+
+    fun findCatchUpMeal(
+        config: RuNotificacaoConfig,
+        alreadySentKeys: Set<String>,
+        nowEpochMillis: Long,
+        minTriggerEpochMillis: Long = 0L,
+    ): ScheduledMealSlot? {
+        if (!config.hasAnySlotSelected()) return null
+
+        val nowZoned = Instant.ofEpochMilli(nowEpochMillis).atZone(RuMenuFreshness.brasiliaZone)
+        val today = nowZoned.toLocalDate()
+        val dia = DiaSemanaRu.fromDayOfWeekIso(today.dayOfWeek.value) ?: return null
+        val enabledMeals = config.refeicoesPorDia[dia].orEmpty()
+        if (enabledMeals.isEmpty()) return null
+
+        for (meal in mealOrder) {
+            if (meal !in enabledMeals) continue
+            if (sentSlotKey(today, meal) in alreadySentKeys) continue
+
+            val triggerMillis = ZonedDateTime.of(
+                today,
+                notificationTimeFor(meal),
+                RuMenuFreshness.brasiliaZone,
+            ).toInstant().toEpochMilli()
+            val deadlineMillis = ZonedDateTime.of(
+                today,
+                catchUpDeadlineFor(meal),
+                RuMenuFreshness.brasiliaZone,
+            ).toInstant().toEpochMilli()
+
+            if (nowEpochMillis in triggerMillis..deadlineMillis && triggerMillis >= minTriggerEpochMillis) {
+                return ScheduledMealSlot(
+                    dia = dia,
+                    refeicao = meal,
+                    triggerEpochMillis = triggerMillis,
+                )
+            }
+        }
+        return null
     }
 
     fun findNextTrigger(
@@ -122,6 +173,42 @@ object RuNotificationPlanner {
             refeicao = refeicao,
             titulo = title,
             mensagem = body,
+        )
+    }
+
+    /**
+     * Compoe a notificacao da refeicao usando o cardapio estruturado quando disponivel, ou uma
+     * mensagem de fallback quando o cardapio do dia/campus ainda esta em imagem, PDF ou sem cache.
+     */
+    fun buildNotificationContentOrFallback(
+        cardapio: CardapioSemanalRu?,
+        preferencias: RuPreferencias,
+        refeicao: TipoRefeicao,
+        nowEpochMillis: Long,
+    ): RuNotificacaoConteudo? {
+        buildNotificationContent(
+            cardapio = cardapio,
+            preferencias = preferencias,
+            refeicao = refeicao,
+            nowEpochMillis = nowEpochMillis,
+        )?.let { return it }
+
+        val today = RuMenuFreshness.localDateInBrasilia(nowEpochMillis)
+        val diaSemana = DiaSemanaRu.fromDayOfWeekIso(today.dayOfWeek.value) ?: return null
+        if (!preferencias.notificacoes.isEnabledFor(diaSemana, refeicao)) return null
+
+        val dayIndex = cardapio?.let { findDayIndexForDate(it, today) } ?: 0
+        val day = cardapio?.dias?.getOrNull(dayIndex)
+        val dataTexto = day?.dataTexto?.takeIf { it.isNotBlank() } ?: brDateFormatter.format(today)
+        val campus = cardapio?.campus ?: preferencias.campusSelecionado
+
+        return RuNotificacaoConteudo(
+            campus = campus,
+            dataTexto = dataTexto,
+            dayIndex = dayIndex,
+            refeicao = refeicao,
+            titulo = "${refeicao.displayName} · RU ${campus.displayName}",
+            mensagem = "Hora de conferir o cardápio de ${refeicao.displayName.lowercase()} no UnB Pocket.",
         )
     }
 

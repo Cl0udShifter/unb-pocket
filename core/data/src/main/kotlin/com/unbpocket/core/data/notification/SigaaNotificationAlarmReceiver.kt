@@ -3,6 +3,7 @@ package com.unbpocket.core.data.notification
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.util.Log
 import com.unbpocket.core.data.UnbPocketCoreFactory
 import com.unbpocket.core.data.worker.SigaaBackgroundSyncScheduler
 import kotlinx.coroutines.CoroutineScope
@@ -26,7 +27,8 @@ class SigaaNotificationAlarmReceiver : BroadcastReceiver() {
         val isSystemReschedule = action == Intent.ACTION_BOOT_COMPLETED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == Intent.ACTION_TIME_CHANGED ||
-            action == Intent.ACTION_TIMEZONE_CHANGED
+            action == Intent.ACTION_TIMEZONE_CHANGED ||
+            action == ACTION_EXACT_ALARM_PERMISSION_CHANGED
 
         if (!isReminderAlarm && !isSystemReschedule) return
 
@@ -34,6 +36,7 @@ class SigaaNotificationAlarmReceiver : BroadcastReceiver() {
         receiverScope.launch {
             try {
                 withTimeoutOrNull(ASYNC_TIMEOUT_MILLIS) {
+                    Log.i(TAG, "SIGAA receiver triggered action=$action")
                     val core = UnbPocketCoreFactory.create(appContext)
                     val config = core.observeSigaaNotificacoesConfig().first()
                     if (isSystemReschedule) {
@@ -41,7 +44,7 @@ class SigaaNotificationAlarmReceiver : BroadcastReceiver() {
                     }
                     val nextTrigger = UnbPocketCoreFactory.prepareSigaaLocalReminders(
                         context = appContext,
-                        postDueNow = isReminderAlarm,
+                        postDueNow = true,
                     )
                     SigaaAlarmScheduler.applyTriggerMillis(appContext, nextTrigger)
                 }
@@ -52,6 +55,9 @@ class SigaaNotificationAlarmReceiver : BroadcastReceiver() {
     }
 
     private companion object {
+        const val TAG: String = "UnbPocketNotif"
+        const val ACTION_EXACT_ALARM_PERMISSION_CHANGED: String =
+            "android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED"
         const val ASYNC_TIMEOUT_MILLIS: Long = 25_000L
         val receiverScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     }

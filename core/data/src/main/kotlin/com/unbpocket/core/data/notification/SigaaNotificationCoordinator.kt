@@ -32,6 +32,7 @@ class SigaaNotificationCoordinator(
     private val scheduler: SigaaNotificationSchedulerPort,
     private val poster: SigaaNotificationPosterPort,
     private val clockMillis: () -> Long = { System.currentTimeMillis() },
+    private val diagLog: (String) -> Unit = {},
 ) {
     private val stateMutex = Mutex()
 
@@ -40,9 +41,13 @@ class SigaaNotificationCoordinator(
     suspend fun getConfig(): SigaaNotificacaoConfig = prefsSource.config.first()
 
     suspend fun setConfig(config: SigaaNotificacaoConfig): CoreResult<Unit> = runCatching {
+        val previousConfig = prefsSource.config.first()
         prefsSource.setConfig(config)
         if (config.hasAnyEnabled) {
-            seedMissingBaselineFromCache()
+            if (!previousConfig.hasAnyEnabled) {
+                seedMissingBaselineFromCache()
+            }
+            evaluateUpdatesAndNotify(postNotifications = true)
         }
         scheduler.syncSchedule(config)
     }.fold(
@@ -128,7 +133,10 @@ class SigaaNotificationCoordinator(
         }
 
         if (posted.isNotEmpty()) {
+            diagLog("evaluateUpdatesAndNotify posting=${posted.map { it.tipo.name }}")
             poster.post(posted)
+        } else {
+            diagLog("evaluateUpdatesAndNotify diff=0 postNotifications=$postNotifications")
         }
         return posted
     }

@@ -1,6 +1,7 @@
 package com.unbpocket.core.data
 
 import android.content.Context
+import android.util.Log
 import com.unbpocket.core.data.local.CredentialVault
 import com.unbpocket.core.data.local.DownloadedFileStore
 import com.unbpocket.core.data.local.FileStore
@@ -71,6 +72,7 @@ object UnbPocketCoreFactory {
                 RuMenuAutoSyncScheduler.ensureScheduled(appContext)
                 RuMealAlarmScheduler.syncFromPreferencesAsync(appContext)
                 SigaaAlarmScheduler.syncScheduleAsync(appContext)
+                SigaaBackgroundSyncScheduler.ensureSyncedAsync(appContext)
             }
         }
     }
@@ -80,8 +82,6 @@ object UnbPocketCoreFactory {
         postDueNow: Boolean,
     ): Long? {
         val core = create(context.applicationContext)
-        val config = core.observeSigaaNotificacoesConfig().first()
-        SigaaBackgroundSyncScheduler.syncSchedule(context.applicationContext, config)
         return (core as? DefaultUnbPocketCore)?.prepareLocalReminders(postDueNow = postDueNow)
     }
 
@@ -120,6 +120,7 @@ object UnbPocketCoreFactory {
                 SigaaBackgroundSyncScheduler.syncSchedule(appContext, config)
             },
             sigaaNotificationPoster = SigaaNotificationPoster(appContext),
+            diagLog = { msg -> Log.i("UnbPocketNotif", msg) },
         )
     }
 
@@ -136,6 +137,7 @@ object UnbPocketCoreFactory {
         sigaaNotifPrefs: SigaaNotifPrefsSource = InMemorySigaaNotifPrefsSource(),
         sigaaNotificationScheduler: SigaaNotificationSchedulerPort = SigaaNotificationSchedulerPort { },
         sigaaNotificationPoster: SigaaNotificationPosterPort = SigaaNotificationPosterPort { },
+        diagLog: (String) -> Unit = {},
     ): UnbPocketCore {
         val cacheStore = SnapshotCacheStore(snapshotDao)
         var onLogoutCallback: suspend (Boolean) -> Unit = {}
@@ -146,6 +148,7 @@ object UnbPocketCoreFactory {
             fileStore = fileStore,
             clockMillis = clockMillis,
             onLogoutHook = { clearCachedData -> onLogoutCallback(clearCachedData) },
+            diagLog = diagLog,
         )
         val ruRepo = RuRepositoryImpl(
             transport = transport,
@@ -174,6 +177,7 @@ object UnbPocketCoreFactory {
             scheduler = sigaaNotificationScheduler,
             poster = sigaaNotificationPoster,
             clockMillis = clockMillis,
+            diagLog = diagLog,
         )
         val core = DefaultUnbPocketCore(
             coordinator = coordinator,
@@ -184,6 +188,7 @@ object UnbPocketCoreFactory {
             sigaaNotificationScheduler = sigaaNotificationScheduler,
             clockMillis = clockMillis,
             preloadDispatcher = preloadDispatcher,
+            diagLog = diagLog,
         )
         onLogoutCallback = { clearCachedData ->
             core.cancelAndResetPreload()
@@ -215,6 +220,7 @@ private class DefaultUnbPocketCore(
     private val sigaaNotificationScheduler: SigaaNotificationSchedulerPort,
     private val clockMillis: () -> Long,
     preloadDispatcher: CoroutineDispatcher,
+    private val diagLog: (String) -> Unit = {},
 ) : UnbPocketCore {
     override val auth: AuthRepository = coordinator
     override val ru: RuRepository = ruRepo
@@ -245,7 +251,7 @@ private class DefaultUnbPocketCore(
 
         val result = coordinator.withAuthenticatedJsf(priority = JsfPriority.INTERACTIVE) { nav ->
             val cachedLoginHtml = coordinator.consumeFreshLoginPortalHtml()
-            val homeHtml = if (cachedLoginHtml != null) {
+            var homeHtml = if (cachedLoginHtml != null) {
                 cachedLoginHtml
             } else {
                 when (val home = nav.getPortalHomeHtml()) {
@@ -255,7 +261,18 @@ private class DefaultUnbPocketCore(
             }
 
             var anyChanged = false
-            when (val resumoRes = discenteRepo.persistResumoFromHomeHtmlWithDiff(nav, homeHtml)) {
+            var resumoRes = discenteRepo.persistResumoFromHomeHtmlWithDiff(nav, homeHtml)
+            if (resumoRes is CoreResult.Failure && cachedLoginHtml != null) {
+                diagLog("syncPortalHome cachedLoginHtml failed parse, retrying getPortalHomeHtml")
+                when (val directHome = nav.getPortalHomeHtml()) {
+                    is CoreResult.Failure -> return@withAuthenticatedJsf directHome
+                    is CoreResult.Success -> {
+                        homeHtml = directHome.value
+                        resumoRes = discenteRepo.persistResumoFromHomeHtmlWithDiff(nav, homeHtml)
+                    }
+                }
+            }
+            when (resumoRes) {
                 is CoreResult.Failure -> return@withAuthenticatedJsf resumoRes
                 is CoreResult.Success -> if (resumoRes.value.second) anyChanged = true
             }
@@ -334,14 +351,21 @@ private class DefaultUnbPocketCore(
 
     override suspend fun silentRefreshAll(includeTurmaDetails: Boolean): CoreResult<PortalHomeSyncSummary> {
         when (val session = coordinator.ensureValidSession()) {
-            is CoreResult.Failure -> return session
+            is CoreResult.Failure -> {
+                diagLog("silentRefreshAll session failed error=${session.error}")
+                sigaaNotifCoordinator.evaluateUpdatesAndNotify(postNotifications = true)
+                return session
+            }
             is CoreResult.Success -> Unit
         }
 
         val summary = syncPortalHome(includeSaldoRu = true)
+        diagLog("silentRefreshAll syncPortalHome=$summary")
         if (summary is CoreResult.Success) {
             startBackgroundPreload(includeTurmaDetails = includeTurmaDetails)
-            sigaaNotifCoordinator.evaluateUpdatesAndNotify(postNotifications = false)
+            sigaaNotifCoordinator.evaluateUpdatesAndNotify(postNotifications = true)
+        } else {
+            sigaaNotifCoordinator.evaluateUpdatesAndNotify(postNotifications = true)
         }
         return summary
     }
@@ -525,7 +549,7 @@ private class DefaultUnbPocketCore(
         publish(target = null, phase = PreloadPhase.COMPLETED)
         val config = sigaaNotifCoordinator.getConfig()
         if (config.hasAnyEnabled) {
-            sigaaNotifCoordinator.seedMissingBaselineFromCache()
+            sigaaNotifCoordinator.evaluateUpdatesAndNotify(postNotifications = true)
             if (config.hasAnyLocalScheduleEnabled) {
                 sigaaNotificationScheduler.syncSchedule(config)
             }
