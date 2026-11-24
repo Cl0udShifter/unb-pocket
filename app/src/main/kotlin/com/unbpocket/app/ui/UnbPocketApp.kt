@@ -23,8 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,11 +36,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -75,6 +77,7 @@ import com.unbpocket.core.model.notification.SigaaNotificacaoTarget
 import com.unbpocket.core.model.ru.RuDeepLinkTarget
 
 private object AppRoutes {
+    const val HOME = "home"
     const val LOGIN = "login"
     const val TURMA_VIRTUAL_PATTERN = "turma_virtual/{frontEndId}"
     const val BOLETIM = "boletim"
@@ -109,10 +112,18 @@ fun UnbPocketApp(
 
     val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
-    val currentRoute = backStackEntry?.destination?.route ?: TopDestination.RU.route
+    val currentRoute = backStackEntry?.destination?.route ?: AppRoutes.HOME
 
-    val currentTopDestination = TopDestination.entries.firstOrNull { it.route == currentRoute }
-    val isTopLevelRoute = currentTopDestination != null
+    var activeTab by rememberSaveable { mutableStateOf(TopDestination.RU) }
+    val visitedTabs = remember {
+        mutableStateMapOf(
+            TopDestination.RU to true,
+            activeTab to true,
+        )
+    }
+
+    val isTopLevelRoute = currentRoute == AppRoutes.HOME
+    val currentTopDestination = if (isTopLevelRoute) activeTab else null
 
     val isExpandedWidth = LocalConfiguration.current.screenWidthDp >= 600
     val bottomContentPadding = if (!isExpandedWidth && isTopLevelRoute) 112.dp else 24.dp
@@ -145,14 +156,10 @@ fun UnbPocketApp(
     }
 
     val navigateToTopDestination: (TopDestination) -> Unit = { dest ->
-        if (currentRoute != dest.route) {
-            navController.navigate(dest.route) {
-                popUpTo(navController.graph.findStartDestination().id) {
-                    saveState = true
-                }
-                launchSingleTop = true
-                restoreState = true
-            }
+        visitedTabs[dest] = true
+        activeTab = dest
+        if (currentRoute != AppRoutes.HOME) {
+            navController.popBackStack(AppRoutes.HOME, inclusive = false)
         }
     }
 
@@ -190,6 +197,8 @@ fun UnbPocketApp(
     val navContent: @Composable (Modifier) -> Unit = { contentModifier ->
         UnbNavHost(
             navController = navController,
+            activeTab = activeTab,
+            visitedTabs = visitedTabs,
             modifier = contentModifier,
             bottomContentPadding = bottomContentPadding,
             authUiState = authUiState,
@@ -219,6 +228,10 @@ fun UnbPocketApp(
 
     BackHandler(enabled = isQrPassOpen) {
         discenteViewModel.resetQrCardToBalance()
+    }
+
+    BackHandler(enabled = !isQrPassOpen && isTopLevelRoute && activeTab != TopDestination.RU) {
+        activeTab = TopDestination.RU
     }
 
     DisposableEffect(isQrPassOpen) {
@@ -352,6 +365,8 @@ fun UnbPocketApp(
 @Composable
 private fun UnbNavHost(
     navController: NavHostController,
+    activeTab: TopDestination,
+    visitedTabs: Map<TopDestination, Boolean>,
     bottomContentPadding: androidx.compose.ui.unit.Dp,
     authUiState: com.unbpocket.app.ui.viewmodel.AuthUiState,
     ruUiState: com.unbpocket.app.ui.viewmodel.RuUiState,
@@ -367,25 +382,15 @@ private fun UnbNavHost(
     onOpenNotificationCenter: (NotificationCenterSection?) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val topRoutes = remember { TopDestination.entries.map { it.route }.toSet() }
-
     NavHost(
         navController = navController,
-        startDestination = TopDestination.RU.route,
+        startDestination = AppRoutes.HOME,
         modifier = modifier,
         enterTransition = {
-            if (targetState.destination.route in topRoutes && initialState.destination.route in topRoutes) {
-                fadeIn(animationSpec = tween(180))
-            } else {
-                slideInHorizontally(animationSpec = tween(220)) { it / 6 } + fadeIn(tween(180))
-            }
+            slideInHorizontally(animationSpec = tween(220)) { it / 6 } + fadeIn(tween(180))
         },
         exitTransition = {
-            if (targetState.destination.route in topRoutes && initialState.destination.route in topRoutes) {
-                fadeOut(animationSpec = tween(140))
-            } else {
-                fadeOut(animationSpec = tween(150))
-            }
+            fadeOut(animationSpec = tween(150))
         },
         popEnterTransition = {
             fadeIn(animationSpec = tween(180))
@@ -394,108 +399,157 @@ private fun UnbNavHost(
             slideOutHorizontally(animationSpec = tween(200)) { it / 6 } + fadeOut(tween(160))
         },
     ) {
-        composable(TopDestination.RU.route) {
-            LaunchedEffect(Unit) {
-                ruViewModel.refreshIfStaleSilently()
-            }
-            RuScreen(
-                uiState = ruUiState,
-                authState = authUiState.authState,
-                bottomContentPadding = bottomContentPadding,
-                onSelectCampus = ruViewModel::selectCampus,
-                onSelectDay = ruViewModel::selectDay,
-                onSelectMeal = ruViewModel::selectMeal,
-                onToggleAllergen = ruViewModel::toggleAllergen,
-                onSetHideRestricted = ruViewModel::setHideRestricted,
-                onClearAllergens = ruViewModel::clearAllergens,
-                onRefreshMenu = { ruViewModel.refreshMenu(force = false) },
-                onRefreshExtras = { ruViewModel.refreshPricesAndNotices(force = true) },
-                onSetCampusSheetOpen = ruViewModel::setCampusSheetOpen,
-                onSetAllergenSheetOpen = ruViewModel::setAllergenSheetOpen,
-                onSetNoticesSheetOpen = ruViewModel::setNoticesAndPricesSheetOpen,
-                onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.RU) },
-                onOpenAccountSheet = onOpenAccountSheet,
-                onOpenLogin = onOpenLogin,
-                onDismissMenuError = ruViewModel::dismissMenuError,
-                onDismissExtrasError = ruViewModel::dismissExtrasError,
-            )
-        }
+        composable(AppRoutes.HOME) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                val ruSelected = activeTab == TopDestination.RU
+                val ruAlpha by animateFloatAsState(
+                    targetValue = if (ruSelected) 1f else 0f,
+                    animationSpec = tween(durationMillis = 120),
+                    label = "tabFadeRu",
+                )
+                if (visitedTabs[TopDestination.RU] == true || ruSelected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(if (ruSelected) 1f else 0f)
+                            .graphicsLayer { alpha = ruAlpha },
+                    ) {
+                        LaunchedEffect(ruSelected) {
+                            if (ruSelected) {
+                                ruViewModel.refreshIfStaleSilently()
+                            }
+                        }
+                        RuScreen(
+                            uiState = ruUiState,
+                            authState = authUiState.authState,
+                            bottomContentPadding = bottomContentPadding,
+                            onSelectCampus = ruViewModel::selectCampus,
+                            onSelectDay = ruViewModel::selectDay,
+                            onSelectMeal = ruViewModel::selectMeal,
+                            onToggleAllergen = ruViewModel::toggleAllergen,
+                            onSetHideRestricted = ruViewModel::setHideRestricted,
+                            onClearAllergens = ruViewModel::clearAllergens,
+                            onRefreshMenu = { ruViewModel.refreshMenu(force = false) },
+                            onRefreshExtras = { ruViewModel.refreshPricesAndNotices(force = true) },
+                            onSetCampusSheetOpen = ruViewModel::setCampusSheetOpen,
+                            onSetAllergenSheetOpen = ruViewModel::setAllergenSheetOpen,
+                            onSetNoticesSheetOpen = ruViewModel::setNoticesAndPricesSheetOpen,
+                            onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.RU) },
+                            onOpenAccountSheet = onOpenAccountSheet,
+                            onOpenLogin = onOpenLogin,
+                            onDismissMenuError = ruViewModel::dismissMenuError,
+                            onDismissExtrasError = ruViewModel::dismissExtrasError,
+                        )
+                    }
+                }
 
-        composable(TopDestination.TURMAS.route) {
-            LaunchedEffect(
-                authUiState.authState,
-                turmasUiState.turmas == null,
-                authUiState.isSubmittingLogin,
-                authUiState.isSyncingAll,
-                authUiState.preloadProgress.phase,
-            ) {
-                if (authUiState.authState is AuthState.Authenticated &&
-                    turmasUiState.turmas == null &&
-                    !turmasUiState.isRefreshingList &&
-                    !authUiState.isSubmittingLogin &&
-                    !authUiState.isSyncingAll &&
-                    authUiState.preloadProgress.phase != PreloadPhase.RUNNING_ESSENTIAL
-                ) {
-                    turmasViewModel.refreshSemestre()
+                val turmasSelected = activeTab == TopDestination.TURMAS
+                val turmasAlpha by animateFloatAsState(
+                    targetValue = if (turmasSelected) 1f else 0f,
+                    animationSpec = tween(durationMillis = 120),
+                    label = "tabFadeTurmas",
+                )
+                if (visitedTabs[TopDestination.TURMAS] == true || turmasSelected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(if (turmasSelected) 1f else 0f)
+                            .graphicsLayer { alpha = turmasAlpha },
+                    ) {
+                        LaunchedEffect(
+                            turmasSelected,
+                            authUiState.authState,
+                            turmasUiState.turmas == null,
+                            authUiState.isSubmittingLogin,
+                            authUiState.isSyncingAll,
+                            authUiState.preloadProgress.phase,
+                        ) {
+                            if (turmasSelected &&
+                                authUiState.authState is AuthState.Authenticated &&
+                                turmasUiState.turmas == null &&
+                                !turmasUiState.isRefreshingList &&
+                                !authUiState.isSubmittingLogin &&
+                                !authUiState.isSyncingAll &&
+                                authUiState.preloadProgress.phase != PreloadPhase.RUNNING_ESSENTIAL
+                            ) {
+                                turmasViewModel.refreshSemestre()
+                            }
+                        }
+
+                        TurmasScreen(
+                            uiState = turmasUiState,
+                            authUiState = authUiState,
+                            bottomContentPadding = bottomContentPadding,
+                            onSelectListTab = turmasViewModel::selectListTab,
+                            onSelectDay = turmasViewModel::selectDay,
+                            onToggleExpandClass = turmasViewModel::toggleExpandedClass,
+                            onOpenTurma = { frontEndId ->
+                                navController.navigate(AppRoutes.turmaVirtual(frontEndId))
+                            },
+                            onRefresh = { turmasViewModel.refreshSemestre() },
+                            onOpenLogin = onOpenLogin,
+                            onOpenAccountSheet = onOpenAccountSheet,
+                            onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.TURMAS) },
+                            onDismissError = turmasViewModel::dismissListError,
+                        )
+                    }
+                }
+
+                val discenteSelected = activeTab == TopDestination.DISCENTE
+                val discenteAlpha by animateFloatAsState(
+                    targetValue = if (discenteSelected) 1f else 0f,
+                    animationSpec = tween(durationMillis = 120),
+                    label = "tabFadeDiscente",
+                )
+                if (visitedTabs[TopDestination.DISCENTE] == true || discenteSelected) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .zIndex(if (discenteSelected) 1f else 0f)
+                            .graphicsLayer { alpha = discenteAlpha },
+                    ) {
+                        LaunchedEffect(
+                            discenteSelected,
+                            authUiState.authState,
+                            discenteUiState.discenteResumo == null,
+                            authUiState.isSubmittingLogin,
+                            authUiState.isSyncingAll,
+                            authUiState.preloadProgress.phase,
+                        ) {
+                            if (discenteSelected &&
+                                authUiState.authState is AuthState.Authenticated &&
+                                discenteUiState.discenteResumo == null &&
+                                !discenteUiState.isRefreshingProfile &&
+                                !authUiState.isSubmittingLogin &&
+                                !authUiState.isSyncingAll &&
+                                authUiState.preloadProgress.phase != PreloadPhase.RUNNING_ESSENTIAL
+                            ) {
+                                discenteViewModel.refreshProfileAndSaldo()
+                            }
+                        }
+
+                        DiscenteScreen(
+                            uiState = discenteUiState,
+                            authUiState = authUiState,
+                            bottomContentPadding = bottomContentPadding,
+                            onToggleQrCardFace = discenteViewModel::toggleQrCardFace,
+                            onRefreshProfile = discenteViewModel::refreshProfileAndSaldo,
+                            onSyncAll = authViewModel::syncAll,
+                            onOpenBoletim = { navController.navigate(AppRoutes.BOLETIM) },
+                            onOpenDocumentos = { navController.navigate(AppRoutes.DOCUMENTOS) },
+                            onOpenLogin = onOpenLogin,
+                            onOpenAccountSheet = onOpenAccountSheet,
+                            onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.DISCENTE) },
+                            onLogout = {
+                                discenteViewModel.resetQrCardToBalance()
+                                authViewModel.logout(clearCachedData = true)
+                            },
+                            onDismissProfileError = discenteViewModel::dismissProfileError,
+                            onDismissSyncError = authViewModel::dismissSyncError,
+                        )
+                    }
                 }
             }
-
-            TurmasScreen(
-                uiState = turmasUiState,
-                authUiState = authUiState,
-                bottomContentPadding = bottomContentPadding,
-                onSelectListTab = turmasViewModel::selectListTab,
-                onSelectDay = turmasViewModel::selectDay,
-                onToggleExpandClass = turmasViewModel::toggleExpandedClass,
-                onOpenTurma = { frontEndId ->
-                    navController.navigate(AppRoutes.turmaVirtual(frontEndId))
-                },
-                onRefresh = { turmasViewModel.refreshSemestre() },
-                onOpenLogin = onOpenLogin,
-                onOpenAccountSheet = onOpenAccountSheet,
-                onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.TURMAS) },
-                onDismissError = turmasViewModel::dismissListError,
-            )
-        }
-
-        composable(TopDestination.DISCENTE.route) {
-            LaunchedEffect(
-                authUiState.authState,
-                discenteUiState.discenteResumo == null,
-                authUiState.isSubmittingLogin,
-                authUiState.isSyncingAll,
-                authUiState.preloadProgress.phase,
-            ) {
-                if (authUiState.authState is AuthState.Authenticated &&
-                    discenteUiState.discenteResumo == null &&
-                    !discenteUiState.isRefreshingProfile &&
-                    !authUiState.isSubmittingLogin &&
-                    !authUiState.isSyncingAll &&
-                    authUiState.preloadProgress.phase != PreloadPhase.RUNNING_ESSENTIAL
-                ) {
-                    discenteViewModel.refreshProfileAndSaldo()
-                }
-            }
-
-            DiscenteScreen(
-                uiState = discenteUiState,
-                authUiState = authUiState,
-                bottomContentPadding = bottomContentPadding,
-                onToggleQrCardFace = discenteViewModel::toggleQrCardFace,
-                onRefreshProfile = discenteViewModel::refreshProfileAndSaldo,
-                onSyncAll = authViewModel::syncAll,
-                onOpenBoletim = { navController.navigate(AppRoutes.BOLETIM) },
-                onOpenDocumentos = { navController.navigate(AppRoutes.DOCUMENTOS) },
-                onOpenLogin = onOpenLogin,
-                onOpenAccountSheet = onOpenAccountSheet,
-                onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.DISCENTE) },
-                onLogout = {
-                    discenteViewModel.resetQrCardToBalance()
-                    authViewModel.logout(clearCachedData = true)
-                },
-                onDismissProfileError = discenteViewModel::dismissProfileError,
-                onDismissSyncError = authViewModel::dismissSyncError,
-            )
         }
 
         composable(AppRoutes.LOGIN) {
