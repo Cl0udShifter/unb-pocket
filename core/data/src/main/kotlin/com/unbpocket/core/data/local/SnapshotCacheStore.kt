@@ -41,6 +41,8 @@ import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import com.unbpocket.core.model.turmas.TurmaResumo
 import com.unbpocket.core.model.turmas.TurnoSigaa
 import com.unbpocket.core.model.turmas.UnidadeNotaTurma
+import com.unbpocket.core.model.update.AppReleaseInfo
+import com.unbpocket.core.model.update.AppUpdateCheckResult
 import com.unbpocket.core.parser.FrequenciaBaselineState
 import com.unbpocket.core.parser.IndicesBaselineState
 import com.unbpocket.core.parser.NotasParciaisBaselineState
@@ -141,6 +143,7 @@ class SnapshotCacheStore(
         const val TURMAS = "turmas"
         const val DISCENTE = "discente"
         const val META = "meta"
+        const val APP_UPDATE = "app_update"
     }
 
     object Keys {
@@ -149,6 +152,7 @@ class SnapshotCacheStore(
         const val RU_PRECOS = "ru_precos"
         const val RU_NOTICIAS = "ru_noticias"
         const val RU_AUTO_SYNC_META = "ru_auto_sync_meta"
+        const val APP_UPDATE_CHECK = "app_update_check"
         const val TURMAS_LIST = "turmas_semestre"
         const val TURMAS_FEED = "turmas_feed"
         fun turmaDetalhe(frontEndId: String) = "turma_detalhe_$frontEndId"
@@ -793,6 +797,46 @@ internal object CacheMappers {
         d.localFilePath,
         d.emitidoEmEpochMillis,
     )
+
+    fun toDto(m: AppReleaseInfo) = AppReleaseInfoDto(
+        tagName = m.tagName,
+        versionName = m.versionName,
+        title = m.title,
+        releaseNotes = m.releaseNotes,
+        publishedAtIso = m.publishedAtIso,
+        htmlUrl = m.htmlUrl,
+        apkDownloadUrl = m.apkDownloadUrl,
+        apkFileName = m.apkFileName,
+        apkSizeBytes = m.apkSizeBytes,
+        apkSha256 = m.apkSha256,
+    )
+
+    fun fromDto(d: AppReleaseInfoDto) = AppReleaseInfo(
+        tagName = d.tagName,
+        versionName = d.versionName,
+        title = d.title,
+        releaseNotes = d.releaseNotes,
+        publishedAtIso = d.publishedAtIso,
+        htmlUrl = d.htmlUrl,
+        apkDownloadUrl = d.apkDownloadUrl,
+        apkFileName = d.apkFileName,
+        apkSizeBytes = d.apkSizeBytes,
+        apkSha256 = d.apkSha256,
+    )
+
+    fun toDto(m: AppUpdateCheckResult) = AppUpdateCheckResultDto(
+        currentVersionName = m.currentVersionName,
+        latestRelease = m.latestRelease?.let(::toDto),
+        hasUpdate = m.hasUpdate,
+        checkedAtEpochMillis = m.checkedAtEpochMillis,
+    )
+
+    fun fromDto(d: AppUpdateCheckResultDto) = AppUpdateCheckResult(
+        currentVersionName = d.currentVersionName,
+        latestRelease = d.latestRelease?.let(::fromDto),
+        hasUpdate = d.hasUpdate,
+        checkedAtEpochMillis = d.checkedAtEpochMillis,
+    )
 }
 
 @Serializable
@@ -921,3 +965,25 @@ internal object SigaaNotifBaselineMappers {
         },
     )
 }
+
+@Serializable
+data class AppReleaseInfoDto(
+    val tagName: String,
+    val versionName: String,
+    val title: String,
+    val releaseNotes: String,
+    val publishedAtIso: String,
+    val htmlUrl: String,
+    val apkDownloadUrl: String,
+    val apkFileName: String,
+    val apkSizeBytes: Long? = null,
+    val apkSha256: String? = null,
+)
+
+@Serializable
+data class AppUpdateCheckResultDto(
+    val currentVersionName: String,
+    val latestRelease: AppReleaseInfoDto? = null,
+    val hasUpdate: Boolean,
+    val checkedAtEpochMillis: Long,
+)

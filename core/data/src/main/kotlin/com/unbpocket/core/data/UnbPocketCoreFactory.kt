@@ -21,6 +21,7 @@ import com.unbpocket.core.data.notification.SigaaAlarmScheduler
 import com.unbpocket.core.data.notification.SigaaNotificationCoordinator
 import com.unbpocket.core.data.notification.SigaaNotificationPoster
 import com.unbpocket.core.data.pdf.AndroidPdfBoxExtractor
+import com.unbpocket.core.data.repository.AppUpdateRepositoryImpl
 import com.unbpocket.core.data.repository.DiscenteRepositoryImpl
 import com.unbpocket.core.data.repository.RuRepositoryImpl
 import com.unbpocket.core.data.repository.TurmasRepositoryImpl
@@ -33,6 +34,7 @@ import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.PortalHomeSyncSummary
 import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.common.PreloadProgress
+import com.unbpocket.core.model.contract.AppUpdateRepository
 import com.unbpocket.core.model.contract.AuthRepository
 import com.unbpocket.core.model.contract.DiscenteRepository
 import com.unbpocket.core.model.contract.RuRepository
@@ -173,6 +175,12 @@ object UnbPocketCoreFactory {
             fileStore = fileStore,
             pdfExtractor = pdfExtractor,
         )
+        val appUpdateRepo = AppUpdateRepositoryImpl(
+            transport = transport,
+            cacheStore = cacheStore,
+            fileStore = fileStore,
+            clockMillis = clockMillis,
+        )
         val sigaaNotifCoordinator = SigaaNotificationCoordinator(
             cacheStore = cacheStore,
             prefsSource = sigaaNotifPrefs,
@@ -186,6 +194,7 @@ object UnbPocketCoreFactory {
             ruRepo = ruRepo,
             turmasRepo = turmasRepo,
             discenteRepo = discenteRepo,
+            appUpdateRepo = appUpdateRepo,
             sigaaNotifCoordinator = sigaaNotifCoordinator,
             sigaaNotificationScheduler = sigaaNotificationScheduler,
             clockMillis = clockMillis,
@@ -218,6 +227,7 @@ private class DefaultUnbPocketCore(
     private val ruRepo: RuRepositoryImpl,
     private val turmasRepo: TurmasRepositoryImpl,
     private val discenteRepo: DiscenteRepositoryImpl,
+    private val appUpdateRepo: AppUpdateRepositoryImpl,
     private val sigaaNotifCoordinator: SigaaNotificationCoordinator,
     private val sigaaNotificationScheduler: SigaaNotificationSchedulerPort,
     private val clockMillis: () -> Long,
@@ -228,6 +238,7 @@ private class DefaultUnbPocketCore(
     override val ru: RuRepository = ruRepo
     override val turmas: TurmasRepository = turmasRepo
     override val discente: DiscenteRepository = discenteRepo
+    override val updates: AppUpdateRepository = appUpdateRepo
 
     private val _preloadProgress = MutableStateFlow(PreloadProgress())
     override val preloadProgress: StateFlow<PreloadProgress> = _preloadProgress.asStateFlow()

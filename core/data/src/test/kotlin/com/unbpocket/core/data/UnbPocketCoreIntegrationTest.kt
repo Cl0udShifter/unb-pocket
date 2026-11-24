@@ -107,6 +107,7 @@ class UnbPocketCoreIntegrationTest {
                 casBaseUrl = baseUrl,
                 sigBaseUrl = baseUrl,
                 ruBaseUrl = baseUrl,
+                githubApiBaseUrl = baseUrl,
             ),
         )
         return UnbPocketCoreFactory.createWithPorts(
@@ -1709,6 +1710,105 @@ class UnbPocketCoreIntegrationTest {
         assertEquals(1, precosHits.get())
         assertTrue(core.ru.refreshTabelaPrecos(force = true) is CoreResult.Success)
         assertEquals(2, precosHits.get())
+    }
+
+    @Test
+    fun appUpdatesCheckRespectsCooldownDownloadsApkWithSha256AndSurvivesLogout() = runTest {
+        val apkBytes = "PK\u0003\u0004fake-apk-payload-v1.1.0".toByteArray()
+        val expectedSha256 = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(apkBytes)
+            .joinToString("") { "%02x".format(it) }
+        val apiHits = AtomicInteger(0)
+        val apkHits = AtomicInteger(0)
+        var serveCorruptApk = false
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                return when {
+                    path.contains("/repos/Cl0udShifter/unb-pocket/releases/latest") -> {
+                        apiHits.incrementAndGet()
+                        MockResponse().setResponseCode(200).setBody(
+                            """
+                            {
+                              "tag_name": "v1.1.0",
+                              "name": "UnB Pocket v1.1.0",
+                              "body": "Atualizacao de estabilidade",
+                              "draft": false,
+                              "prerelease": false,
+                              "published_at": "2026-11-24T15:00:00Z",
+                              "html_url": "https://github.com/Cl0udShifter/unb-pocket/releases/tag/v1.1.0",
+                              "assets": [
+                                {
+                                  "name": "unb-pocket-v1.1.0.apk",
+                                  "size": ${apkBytes.size},
+                                  "digest": "sha256:$expectedSha256",
+                                  "browser_download_url": "${server.url("/releases/download/v1.1.0/unb-pocket-v1.1.0.apk")}"
+                                }
+                              ]
+                            }
+                            """.trimIndent(),
+                        )
+                    }
+                    path.contains("/releases/download/v1.1.0/unb-pocket-v1.1.0.apk") -> {
+                        apkHits.incrementAndGet()
+                        val bodyBytes = if (serveCorruptApk) "corrupted".toByteArray() else apkBytes
+                        MockResponse()
+                            .setResponseCode(200)
+                            .setHeader("Content-Type", "application/vnd.android.package-archive")
+                            .setBody(Buffer().write(bodyBytes))
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+
+        // 1. Primeira checagem detecta 1.1.0 > 1.0.0 e grava em cache
+        val check1 = (core.updates.checkForUpdates("1.0.0", force = false) as CoreResult.Success).value
+        assertTrue(check1.hasUpdate)
+        assertEquals("1.1.0", check1.latestRelease?.versionName)
+        assertEquals(1, apiHits.get())
+        assertEquals("1.1.0", core.updates.observeLatestUpdateCheck().first()?.value?.latestRelease?.versionName)
+
+        // 2. Segunda checagem dentro do cooldown reaproveita cache sem chamar API
+        val check2 = (core.updates.checkForUpdates("1.0.0", force = false) as CoreResult.Success).value
+        assertTrue(check2.hasUpdate)
+        assertEquals(1, apiHits.get())
+
+        // 3. Checagem forcada consulta API novamente; versao ja atualizada retorna hasUpdate = false
+        val checkUpToDate = (core.updates.checkForUpdates("1.1.0", force = true) as CoreResult.Success).value
+        assertFalse(checkUpToDate.hasUpdate)
+        assertEquals(2, apiHits.get())
+
+        val release = check1.latestRelease!!
+
+        // 4. APK corrompido falha na verificacao SHA-256 e nao fica salvo em disco
+        serveCorruptApk = true
+        val corruptDownload = core.updates.downloadReleaseApk(release)
+        assertTrue(corruptDownload is CoreResult.Failure)
+        assertTrue((corruptDownload as CoreResult.Failure).error is CoreError.StorageError)
+
+        // 5. Download integro baixa em streaming, valida SHA-256 e atualiza downloadProgress
+        serveCorruptApk = false
+        val downloaded = (core.updates.downloadReleaseApk(release) as CoreResult.Success).value
+        assertEquals("unb-pocket-v1.1.0.apk", downloaded.nomeArquivo)
+        assertEquals("application/vnd.android.package-archive", downloaded.mimeType)
+        assertTrue(File(downloaded.localFilePath).exists())
+        assertEquals(apkBytes.size.toLong(), downloaded.tamanhoBytes)
+        assertTrue(core.updates.downloadProgress.value?.isCompleted == true)
+        val hitsAfterDownload = apkHits.get()
+
+        // 6. Segunda chamada reutiliza o APK valido ja salvo em disco sem rebaixar
+        val cachedDownload = (core.updates.downloadReleaseApk(release) as CoreResult.Success).value
+        assertEquals(downloaded.localFilePath, cachedDownload.localFilePath)
+        assertEquals(hitsAfterDownload, apkHits.get())
+
+        // 7. Logout SIGAA preserva cache e APK publico de atualizacao
+        assertTrue(core.auth.logout(clearCachedData = true) is CoreResult.Success)
+        assertNotNull(core.updates.observeLatestUpdateCheck().first())
+        assertTrue(File(downloaded.localFilePath).exists())
     }
 
     private fun buildSyntheticRuMenuPage(): PdfMenuPageData {

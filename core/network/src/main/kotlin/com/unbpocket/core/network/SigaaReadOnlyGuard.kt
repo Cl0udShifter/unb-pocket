@@ -24,6 +24,18 @@ object SigaaReadOnlyGuard {
         "sig.unb.br",
         "arquivos.unb.br",
         "ru.unb.br",
+        "api.github.com",
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
+    )
+
+    private val getOnlyHosts: Set<String> = setOf(
+        "ru.unb.br",
+        "api.github.com",
+        "github.com",
+        "objects.githubusercontent.com",
+        "release-assets.githubusercontent.com",
     )
 
     private val allowedPostPaths = setOf(
@@ -97,7 +109,7 @@ object SigaaReadOnlyGuard {
 
     private fun validatePost(host: String, path: String, formEncodedBody: String?) {
         val cleanPath = path.substringBefore(';').substringBefore('?')
-        if (host == "ru.unb.br" || cleanPath !in allowedPostPaths) {
+        if (host in getOnlyHosts || cleanPath !in allowedPostPaths) {
             throw ReadOnlyViolationException(
                 blockedTarget = "POST $host$cleanPath",
                 reason = "Endpoint POST fora da whitelist de navegacao/emissao read-only.",

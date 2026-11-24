@@ -21,6 +21,18 @@ class SigaaReadOnlyGuardTest {
             formEncodedBody = null,
         )
         SigaaReadOnlyGuard.validateRequest(
+            host = "api.github.com",
+            path = "/repos/Cl0udShifter/unb-pocket/releases/latest",
+            method = "GET",
+            formEncodedBody = null,
+        )
+        SigaaReadOnlyGuard.validateRequest(
+            host = "objects.githubusercontent.com",
+            path = "/github-production-release-asset-2e65be/unb-pocket-v1.0.0.apk",
+            method = "GET",
+            formEncodedBody = null,
+        )
+        SigaaReadOnlyGuard.validateRequest(
             host = "sigaa.unb.br",
             path = "/sigaa/portais/discente/discente.jsf",
             method = "POST",
@@ -66,6 +78,14 @@ class SigaaReadOnlyGuardTest {
                 path = "/sigaa/portais/discente/discente.jsf",
                 method = "DELETE",
                 formEncodedBody = null,
+            )
+        }
+        assertThrows(ReadOnlyViolationException::class.java) {
+            SigaaReadOnlyGuard.validateRequest(
+                host = "api.github.com",
+                path = "/repos/Cl0udShifter/unb-pocket/releases",
+                method = "POST",
+                formEncodedBody = "tag_name=v9.9.9",
             )
         }
     }

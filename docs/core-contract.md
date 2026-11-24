@@ -153,6 +153,11 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
 * `TipoDocumentoOficial`: `ATESTADO_MATRICULA`, `DECLARACAO_VINCULO`, `HISTORICO_ESCOLAR`, `PASSE_LIVRE_ESTUDANTIL`, `CARTEIRINHA_ESTUDANTIL`
 * `DocumentoOficialEmitido(tipo: TipoDocumentoOficial, titulo: String, codigoVerificacao: String?, mimeType: String, localFilePath: String, emitidoEmEpochMillis: Long)`
 
+### 3.6 Atualizacao In-App via GitHub Releases (`com.unbpocket.core.model.update`)
+* `AppReleaseInfo(tagName: String, versionName: String, title: String, releaseNotes: String, publishedAtIso: String, htmlUrl: String, apkDownloadUrl: String, apkFileName: String, apkSizeBytes: Long?, apkSha256: String? = null)`
+* `AppUpdateCheckResult(currentVersionName: String, latestRelease: AppReleaseInfo?, hasUpdate: Boolean, checkedAtEpochMillis: Long)`
+* `AppUpdateDownloadProgress(versionName: String, bytesDownloaded: Long, totalBytes: Long?, isCompleted: Boolean = false, localApkPath: String? = null)` (com propriedade computada `progressFraction: Float?` em `0f..1f`)
+
 ---
 
 ## 4. Interfaces Publicas Expostas (`com.unbpocket.core.model.contract`)
@@ -164,6 +169,7 @@ interface UnbPocketCore {
     val ru: RuRepository
     val turmas: TurmasRepository
     val discente: DiscenteRepository
+    val updates: AppUpdateRepository
 
     val preloadProgress: StateFlow<PreloadProgress>
 
@@ -249,6 +255,16 @@ interface UnbPocketCore {
 * `suspend fun refreshBoletimGeral(): CoreResult<List<BoletimSemestre>>`
 * `fun observeDocumentosEmitidos(): Flow<List<DocumentoOficialEmitido>>`
 * `suspend fun emitirDocumentoOficial(tipo: TipoDocumentoOficial): CoreResult<DocumentoOficialEmitido>`
+
+### 4.6 `AppUpdateRepository` (Atualizacao In-App via GitHub Releases)
+* `val downloadProgress: StateFlow<AppUpdateDownloadProgress?>` (progresso em tempo real do download streaming do APK; `null` quando inativo ou em caso de falha)
+* `fun observeLatestUpdateCheck(): Flow<SyncedData<AppUpdateCheckResult>?>` (observa no Room a ultima verificacao salva; preservada mesmo apos `logout`)
+* `suspend fun checkForUpdates(currentVersionName: String, force: Boolean = false): CoreResult<AppUpdateCheckResult>`
+  * Consulta `GET https://api.github.com/repos/Cl0udShifter/unb-pocket/releases/latest` considerando apenas releases estaveis (`draft == false && prerelease == false`), compara versoes via SemVer (`1.0.1 > 1.0.0`) e seleciona automaticamente o melhor asset `.apk` (priorizando `unb-pocket-*.apk` / `*release*.apk` nao-debug).
+  * Aplica cooldown de `6 horas` quando `force = false` e a versao instalada (`currentVersionName`) ja foi verificada; `force = true` consulta imediatamente a API.
+* `suspend fun downloadReleaseApk(release: AppReleaseInfo): CoreResult<ArquivoBaixado>`
+  * Baixa o APK em streaming direto para `filesDir/unb_pocket_files/updates/<apkFileName>` (compartilhavel via `FileProvider` da aplicacao com MIME `application/vnd.android.package-archive`), valida integridade `SHA-256` quando `release.apkSha256` estiver presente na API do GitHub e reaproveita o arquivo local ja baixado se estiver integro.
+  * A permissao `android.permission.REQUEST_INSTALL_PACKAGES` ja esta declarada no manifest de `:core:data`; na camada de UI, basta checar `packageManager.canRequestPackageInstalls()` (abrindo `Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES` se necessario) e disparar `Intent(Intent.ACTION_VIEW)` via `FileProvider` para `ArquivoBaixado.localFilePath`.
 
 ---
 

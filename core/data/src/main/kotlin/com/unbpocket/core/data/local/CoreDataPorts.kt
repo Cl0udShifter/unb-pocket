@@ -48,6 +48,7 @@ fun interface SigaaNotificationPosterPort {
 }
 
 interface FileStore {
+    suspend fun resolveFile(subdir: String, fileName: String): File
     suspend fun saveBytes(subdir: String, fileName: String, bytes: ByteArray): File
     suspend fun saveToPublicDownloads(fileName: String, mimeType: String, bytes: ByteArray): String? = null
     suspend fun saveRgbAsPng(subdir: String, fileName: String, image: RgbImageBuffer): File

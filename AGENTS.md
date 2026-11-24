@@ -15,10 +15,10 @@ adb install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
 ## Mapa de Pastas
-- `core/model/`: Modelos imutaveis, `CoreError`, `CoreResult`, `SyncedData` e interfaces do Core (JVM puro)
-- `core/network/`: Cliente OkHttp, `InMemoryCookieJar`, lock JSF `ViewState`, decoder ISO-8859-1 e guard-rail Read-Only
-- `core/parser/`: Decodificador de horarios SIGAA, calculadora RU, classificador MSE de alergenicos e parsers HTML
-- `core/data/`: Room (`UnbPocketDatabase`), DataStore (`RuPreferencesStore`), `KeystoreCredentialVault`, `UnbPocketCoreFactory`
+- `core/model/`: Modelos imutaveis, `CoreError`, `CoreResult`, `SyncedData` e interfaces do Core (JVM puro, incluindo `AppUpdateRepository`)
+- `core/network/`: Cliente OkHttp, `InMemoryCookieJar`, lock JSF `ViewState`, decoder ISO-8859-1, streaming de downloads e guard-rail Read-Only (SIGAA, RU e GitHub Releases somente GET)
+- `core/parser/`: Decodificador de horarios SIGAA, calculadora RU, classificador MSE de alergenicos, parsers HTML e parser SemVer de GitHub Releases
+- `core/data/`: Room (`UnbPocketDatabase`), DataStore (`RuPreferencesStore`), `KeystoreCredentialVault`, `AppUpdateRepositoryImpl` e `UnbPocketCoreFactory`
 - `app/`: Shell Android (`UnbPocketApplication`, `MainActivity`); camada de UI consumira apenas `UnbPocketCore`
 - `docs/`: `endpoints.md` (mapeamento SIGAA/RU) e `core-contract.md` (contrato oficial Core <-> UI)
 

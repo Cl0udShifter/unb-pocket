@@ -34,6 +34,9 @@ import com.unbpocket.core.model.turmas.NoticiaTurmaAva
 import com.unbpocket.core.model.turmas.TarefaTurma
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import com.unbpocket.core.model.turmas.TurmaResumo
+import com.unbpocket.core.model.update.AppReleaseInfo
+import com.unbpocket.core.model.update.AppUpdateCheckResult
+import com.unbpocket.core.model.update.AppUpdateDownloadProgress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -180,6 +183,22 @@ interface DiscenteRepository {
 }
 
 /**
+ * Contrato de atualizacao in-app via GitHub Releases (somente leitura: GET API + download de APK).
+ */
+interface AppUpdateRepository {
+    val downloadProgress: StateFlow<AppUpdateDownloadProgress?>
+
+    fun observeLatestUpdateCheck(): Flow<SyncedData<AppUpdateCheckResult>?>
+
+    suspend fun checkForUpdates(
+        currentVersionName: String,
+        force: Boolean = false,
+    ): CoreResult<AppUpdateCheckResult>
+
+    suspend fun downloadReleaseApk(release: AppReleaseInfo): CoreResult<ArquivoBaixado>
+}
+
+/**
  * Ponto de entrada unico exposto pelo modulo `:core:data` para a camada de UI (`:app`).
  */
 interface UnbPocketCore {
@@ -187,6 +206,7 @@ interface UnbPocketCore {
     val ru: RuRepository
     val turmas: TurmasRepository
     val discente: DiscenteRepository
+    val updates: AppUpdateRepository
 
     val preloadProgress: StateFlow<PreloadProgress>
 

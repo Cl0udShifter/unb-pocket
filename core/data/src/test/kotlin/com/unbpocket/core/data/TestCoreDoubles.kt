@@ -97,6 +97,11 @@ class InMemoryRuPrefsSource : RuPrefsSource {
 class TempFileStore : FileStore {
     val rootDir: File = Files.createTempDirectory("unb_pocket_test").toFile()
 
+    override suspend fun resolveFile(subdir: String, fileName: String): File {
+        val dir = File(rootDir, subdir).apply { mkdirs() }
+        return File(dir, fileName)
+    }
+
     override suspend fun saveBytes(subdir: String, fileName: String, bytes: ByteArray): File {
         val dir = File(rootDir, subdir).apply { mkdirs() }
         return File(dir, fileName).apply { writeBytes(bytes) }

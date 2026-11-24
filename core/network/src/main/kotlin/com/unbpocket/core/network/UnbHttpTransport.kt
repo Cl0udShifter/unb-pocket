@@ -7,9 +7,12 @@ import kotlinx.coroutines.withContext
 import okhttp3.FormBody
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.Request
+import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.net.URLDecoder
 import java.nio.charset.StandardCharsets
+import java.security.MessageDigest
 
 /**
  * Endpoints base configuraveis para producao e testes isolados com MockWebServer.
@@ -19,6 +22,9 @@ data class NetworkEndpoints(
     val casBaseUrl: String = "https://autenticacao.unb.br",
     val sigBaseUrl: String = "https://sig.unb.br",
     val ruBaseUrl: String = "https://ru.unb.br",
+    val githubApiBaseUrl: String = "https://api.github.com",
+    val githubRepoOwner: String = "Cl0udShifter",
+    val githubRepoName: String = "unb-pocket",
 ) {
     val discentePortalUrl: String get() = "$sigaaBaseUrl/sigaa/portais/discente/discente.jsf"
     val verPortalDiscenteUrl: String get() = "$sigaaBaseUrl/sigaa/verPortalDiscente.do"
@@ -28,7 +34,21 @@ data class NetworkEndpoints(
     val ruMediaPdfsUrl: String get() = "$ruBaseUrl/wp-json/wp/v2/media?per_page=15&mime_type=application/pdf"
     fun ruNoticiasUrl(perPage: Int): String = "$ruBaseUrl/wp-json/wp/v2/posts?per_page=$perPage&_embed"
     val ruPrecosPageUrl: String get() = "$ruBaseUrl/wp-json/wp/v2/pages?slug=precos-e-grupos&_fields=id,modified_gmt,content"
+    val githubLatestReleaseUrl: String
+        get() = "$githubApiBaseUrl/repos/$githubRepoOwner/$githubRepoName/releases/latest"
 }
+
+/**
+ * Metadados de um download em streaming gravado diretamente em disco.
+ */
+data class DownloadedStreamMeta(
+    val finalUrl: String,
+    val statusCode: Int,
+    val contentType: String?,
+    val contentDisposition: String?,
+    val bytesWritten: Long,
+    val sha256Hex: String,
+)
 
 /**
  * Resposta HTTP bruta com URL final pos-redirecionamentos e helpers de charset.
@@ -75,13 +95,111 @@ class UnbHttpTransport(
     val session: UnbHttpSession = UnbHttpSession(),
     val endpoints: NetworkEndpoints = NetworkEndpoints(),
 ) {
-    suspend fun get(url: String): CoreResult<HttpPayload> {
-        val request = Request.Builder()
+    suspend fun get(
+        url: String,
+        headers: Map<String, String> = emptyMap(),
+    ): CoreResult<HttpPayload> {
+        val builder = Request.Builder()
             .url(url)
             .get()
             .header("User-Agent", USER_AGENT)
-            .build()
-        return execute(request, url)
+        headers.forEach { (k, v) -> builder.header(k, v) }
+        return execute(builder.build(), url)
+    }
+
+    suspend fun downloadToFile(
+        url: String,
+        destinationFile: File,
+        headers: Map<String, String> = emptyMap(),
+        onProgress: (bytesRead: Long, totalBytes: Long?) -> Unit = { _, _ -> },
+    ): CoreResult<DownloadedStreamMeta> = withContext(Dispatchers.IO) {
+        val tempFile = File(destinationFile.parentFile, "${destinationFile.name}.part")
+        try {
+            destinationFile.parentFile?.mkdirs()
+            val builder = Request.Builder()
+                .url(url)
+                .get()
+                .header("User-Agent", USER_AGENT)
+            headers.forEach { (k, v) -> builder.header(k, v) }
+
+            session.sigaaClient.newCall(builder.build()).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext CoreResult.Failure(
+                        CoreError.HttpFailure(
+                            statusCode = response.code,
+                            endpoint = url,
+                            message = response.message.ifBlank { null },
+                        ),
+                    )
+                }
+                val body = response.body ?: return@withContext CoreResult.Failure(
+                    CoreError.HttpFailure(
+                        statusCode = response.code,
+                        endpoint = url,
+                        message = "Corpo de resposta vazio ao baixar arquivo.",
+                    ),
+                )
+                val totalBytes = body.contentLength().takeIf { it > 0L }
+                val digest = MessageDigest.getInstance("SHA-256")
+                var bytesWritten = 0L
+                val buffer = ByteArray(8 * 1024)
+
+                onProgress(0L, totalBytes)
+                body.byteStream().use { input ->
+                    FileOutputStream(tempFile).use { output ->
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read == -1) break
+                            output.write(buffer, 0, read)
+                            digest.update(buffer, 0, read)
+                            bytesWritten += read
+                            onProgress(bytesWritten, totalBytes)
+                        }
+                        output.flush()
+                    }
+                }
+
+                if (destinationFile.exists()) {
+                    destinationFile.delete()
+                }
+                if (!tempFile.renameTo(destinationFile)) {
+                    tempFile.copyTo(destinationFile, overwrite = true)
+                    tempFile.delete()
+                }
+
+                val sha256Hex = digest.digest().joinToString("") { "%02x".format(it) }
+                CoreResult.Success(
+                    DownloadedStreamMeta(
+                        finalUrl = response.request.url.toString(),
+                        statusCode = response.code,
+                        contentType = response.header("Content-Type"),
+                        contentDisposition = response.header("Content-Disposition"),
+                        bytesWritten = bytesWritten,
+                        sha256Hex = sha256Hex,
+                    ),
+                )
+            }
+        } catch (violation: ReadOnlyViolationException) {
+            runCatching { tempFile.delete() }
+            CoreResult.Failure(
+                CoreError.ReadOnlyViolation(
+                    blockedTarget = violation.blockedTarget,
+                    reason = violation.reason,
+                ),
+            )
+        } catch (_: IOException) {
+            runCatching { tempFile.delete() }
+            CoreResult.Failure(CoreError.NetworkUnavailable)
+        } catch (e: IllegalArgumentException) {
+            runCatching { tempFile.delete() }
+            CoreResult.Failure(
+                CoreError.HttpFailure(
+                    statusCode = 0,
+                    endpoint = url,
+                    message = e.message,
+                ),
+            )
+        }
     }
 
     suspend fun postForm(url: String, fields: Map<String, String>): CoreResult<HttpPayload> {

@@ -25,6 +25,14 @@ class DownloadedFileStore(
 ) : FileStore {
     private val rootDir = File(context.filesDir, "unb_pocket_files")
 
+    override suspend fun resolveFile(
+        subdir: String,
+        fileName: String,
+    ): File = withContext(Dispatchers.IO) {
+        val dir = File(rootDir, sanitizeSegment(subdir)).apply { mkdirs() }
+        File(dir, sanitizeFileName(fileName))
+    }
+
     override suspend fun saveBytes(
         subdir: String,
         fileName: String,

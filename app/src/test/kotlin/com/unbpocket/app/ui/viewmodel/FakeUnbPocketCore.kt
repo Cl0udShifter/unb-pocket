@@ -9,6 +9,7 @@ import com.unbpocket.core.model.common.PortalHomeSyncSummary
 import com.unbpocket.core.model.common.PreloadPhase
 import com.unbpocket.core.model.common.PreloadProgress
 import com.unbpocket.core.model.common.SyncedData
+import com.unbpocket.core.model.contract.AppUpdateRepository
 import com.unbpocket.core.model.contract.AuthRepository
 import com.unbpocket.core.model.contract.DiscenteRepository
 import com.unbpocket.core.model.contract.RuRepository
@@ -43,6 +44,9 @@ import com.unbpocket.core.model.turmas.NoticiaTurmaAva
 import com.unbpocket.core.model.turmas.TarefaTurma
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
 import com.unbpocket.core.model.turmas.TurmaResumo
+import com.unbpocket.core.model.update.AppReleaseInfo
+import com.unbpocket.core.model.update.AppUpdateCheckResult
+import com.unbpocket.core.model.update.AppUpdateDownloadProgress
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -54,6 +58,7 @@ class FakeUnbPocketCore : UnbPocketCore {
     val ruFake = FakeRuRepository()
     val turmasFake = FakeTurmasRepository()
     val discenteFake = FakeDiscenteRepository()
+    val updatesFake = FakeAppUpdateRepository()
 
     var syncPortalResult: CoreResult<PortalHomeSyncSummary> = CoreResult.Success(
         PortalHomeSyncSummary(
@@ -82,6 +87,7 @@ class FakeUnbPocketCore : UnbPocketCore {
     override val ru: RuRepository = ruFake
     override val turmas: TurmasRepository = turmasFake
     override val discente: DiscenteRepository = discenteFake
+    override val updates: AppUpdateRepository = updatesFake
 
     override suspend fun syncPortalHome(includeSaldoRu: Boolean): CoreResult<PortalHomeSyncSummary> {
         syncPortalHomeCalls++
@@ -436,4 +442,35 @@ class FakeDiscenteRepository : DiscenteRepository {
         docs.value = listOf(doc) + docs.value
         return CoreResult.Success(doc)
     }
+}
+
+class FakeAppUpdateRepository : AppUpdateRepository {
+    val latestCheck = MutableStateFlow<SyncedData<AppUpdateCheckResult>?>(null)
+    private val _downloadProgress = MutableStateFlow<AppUpdateDownloadProgress?>(null)
+    override val downloadProgress: StateFlow<AppUpdateDownloadProgress?> = _downloadProgress.asStateFlow()
+
+    override fun observeLatestUpdateCheck(): Flow<SyncedData<AppUpdateCheckResult>?> = latestCheck
+
+    override suspend fun checkForUpdates(
+        currentVersionName: String,
+        force: Boolean,
+    ): CoreResult<AppUpdateCheckResult> {
+        val result = latestCheck.value?.value ?: AppUpdateCheckResult(
+            currentVersionName = currentVersionName,
+            latestRelease = null,
+            hasUpdate = false,
+            checkedAtEpochMillis = 1000L,
+        )
+        return CoreResult.Success(result)
+    }
+
+    override suspend fun downloadReleaseApk(release: AppReleaseInfo): CoreResult<ArquivoBaixado> =
+        CoreResult.Success(
+            ArquivoBaixado(
+                nomeArquivo = release.apkFileName,
+                mimeType = "application/vnd.android.package-archive",
+                localFilePath = "/tmp/${release.apkFileName}",
+                tamanhoBytes = release.apkSizeBytes ?: 1024L,
+            ),
+        )
 }
