@@ -3,7 +3,6 @@ package com.unbpocket.app.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.unbpocket.app.ui.common.CoreErrorMapper
-import com.unbpocket.app.ui.common.Formatters
 import com.unbpocket.app.ui.common.UiErrorBanner
 import com.unbpocket.core.model.common.CoreResult
 import com.unbpocket.core.model.common.SyncedData
@@ -35,7 +34,8 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.util.Calendar
+import java.time.LocalDate
+import java.time.ZoneId
 
 data class RuUiState(
     val preferencias: RuPreferencias = RuPreferencias(),
@@ -44,9 +44,7 @@ data class RuUiState(
     val tabelaPrecos: SyncedData<TabelaPrecosRu>? = null,
     val noticias: SyncedData<List<NoticiaRu>>? = null,
     val selectedDayIndex: Int = 0,
-    val selectedMeal: TipoRefeicao = Formatters.defaultMealForHour(
-        Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
-    ),
+    val selectedMeal: TipoRefeicao = TipoRefeicao.ALMOCO,
     val isRefreshingMenu: Boolean = false,
     val isRefreshingExtras: Boolean = false,
     val menuError: UiErrorBanner? = null,
@@ -63,9 +61,8 @@ data class RuUiState(
 private data class RuControlState(
     val selectedDayIndex: Int? = null,
     val targetDayDataTexto: String? = null,
-    val selectedMeal: TipoRefeicao = Formatters.defaultMealForHour(
-        Calendar.getInstance().get(Calendar.HOUR_OF_DAY),
-    ),
+    val selectedMeal: TipoRefeicao? = null,
+    val clockTick: Long = 0L,
     val isRefreshingMenu: Boolean = false,
     val isRefreshingExtras: Boolean = false,
     val menuError: UiErrorBanner? = null,
@@ -80,6 +77,8 @@ class RuViewModel(
     private val core: UnbPocketCore,
 ) : ViewModel() {
 
+    private val brasiliaZone = ZoneId.of("America/Sao_Paulo")
+    private var lastResumeDate: LocalDate = LocalDate.now(brasiliaZone)
     private val controlState = MutableStateFlow(RuControlState())
     private var lastLoadedCampus: CampusRu? = null
     private var silentSyncJob: Job? = null
@@ -103,6 +102,7 @@ class RuViewModel(
         controlState,
     ) { prefs, (hasResolvedMenu, cardapio), precos, noticias, ctrl ->
         val dias = cardapio?.value?.dias.orEmpty()
+        val autoSelection = core.ru.resolveSelecaoInicial(cardapio?.value)
         val matchedDeepLinkIdx = ctrl.targetDayDataTexto?.let { targetText ->
             dias.indexOfFirst { it.dataTexto == targetText }.takeIf { it >= 0 }
         }
@@ -110,8 +110,9 @@ class RuViewModel(
             dias.isEmpty() -> 0
             matchedDeepLinkIdx != null -> matchedDeepLinkIdx
             ctrl.selectedDayIndex != null -> ctrl.selectedDayIndex.coerceIn(0, dias.lastIndex)
-            else -> resolveTodayIndex(dias.map { it.dataTexto to it.diaSemana })
+            else -> autoSelection.dayIndex.coerceIn(0, dias.lastIndex)
         }
+        val resolvedMeal = ctrl.selectedMeal ?: autoSelection.refeicao
 
         val currentNoticias = noticias?.value.orEmpty()
         val hasUnreadNoticias = currentNoticias.any { it.id !in prefs.noticiasVistasIds }
@@ -123,7 +124,7 @@ class RuViewModel(
             tabelaPrecos = precos,
             noticias = noticias,
             selectedDayIndex = resolvedDayIndex,
-            selectedMeal = ctrl.selectedMeal,
+            selectedMeal = resolvedMeal,
             isRefreshingMenu = ctrl.isRefreshingMenu,
             isRefreshingExtras = ctrl.isRefreshingExtras,
             menuError = ctrl.menuError,
@@ -136,7 +137,9 @@ class RuViewModel(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = RuUiState(),
+        initialValue = RuUiState(
+            selectedMeal = core.ru.resolveSelecaoInicial(null).refeicao,
+        ),
     )
 
     init {
@@ -353,45 +356,28 @@ class RuViewModel(
         }
     }
 
+    fun syncAutomaticSelectionOnResume(today: LocalDate = LocalDate.now(brasiliaZone)) {
+        val dayChanged = today != lastResumeDate
+        lastResumeDate = today
+        controlState.update { ctrl ->
+            if (dayChanged) {
+                ctrl.copy(
+                    selectedDayIndex = null,
+                    targetDayDataTexto = null,
+                    selectedMeal = null,
+                    clockTick = ctrl.clockTick + 1L,
+                )
+            } else {
+                ctrl.copy(clockTick = ctrl.clockTick + 1L)
+            }
+        }
+    }
+
     fun dismissMenuError() {
         controlState.update { it.copy(menuError = null) }
     }
 
     fun dismissExtrasError() {
         controlState.update { it.copy(extrasError = null) }
-    }
-
-    private fun resolveTodayIndex(days: List<Pair<String, String>>): Int {
-        val cal = Calendar.getInstance()
-        val todayDay = cal.get(Calendar.DAY_OF_MONTH).toString().padStart(2, '0')
-        val todayMonth = (cal.get(Calendar.MONTH) + 1).toString().padStart(2, '0')
-        val datePrefix = "$todayDay/$todayMonth"
-        val exactDateIdx = days.indexOfFirst { (dataTexto, _) -> dataTexto.startsWith(datePrefix) }
-        if (exactDateIdx >= 0) return exactDateIdx
-
-        val dowKeyword = when (cal.get(Calendar.DAY_OF_WEEK)) {
-            Calendar.MONDAY -> "seg"
-            Calendar.TUESDAY -> "ter"
-            Calendar.WEDNESDAY -> "qua"
-            Calendar.THURSDAY -> "qui"
-            Calendar.FRIDAY -> "sex"
-            Calendar.SATURDAY -> "sáb"
-            Calendar.SUNDAY -> "dom"
-            else -> "seg"
-        }
-        val dowIdx = days.indexOfFirst { (_, diaSemana) ->
-            val lower = diaSemana.lowercase().trim()
-            when (cal.get(Calendar.DAY_OF_WEEK)) {
-                Calendar.MONDAY -> lower.contains("seg") || lower.startsWith("2")
-                Calendar.TUESDAY -> lower.contains("ter") || lower.startsWith("3")
-                Calendar.WEDNESDAY -> lower.contains("qua") || lower.startsWith("4")
-                Calendar.THURSDAY -> lower.contains("qui") || lower.startsWith("5")
-                Calendar.FRIDAY -> lower.contains("sex") || lower.startsWith("6")
-                Calendar.SATURDAY -> lower.contains("sab") || lower.contains("sáb")
-                Calendar.SUNDAY -> lower.contains("dom")
-                else -> lower.contains(dowKeyword.take(3))
-            }
-        }
-        return if (dowIdx >= 0) dowIdx else 0
     }
 }

@@ -17,6 +17,7 @@ import com.unbpocket.core.model.contract.TurmasRepository
 import com.unbpocket.core.model.turmas.ArquivoBaixado
 import com.unbpocket.core.model.turmas.AtualizacaoTurmaFeed
 import com.unbpocket.core.model.turmas.AvaliacaoTurma
+import com.unbpocket.core.model.turmas.DiaSemanaSigaa
 import com.unbpocket.core.model.turmas.MapaFrequenciaTurma
 import com.unbpocket.core.model.turmas.MaterialAulaAva
 import com.unbpocket.core.model.turmas.NotasParciaisTurma
@@ -31,6 +32,7 @@ import com.unbpocket.core.parser.DiscentePortalParser
 import com.unbpocket.core.parser.ParsedAvaFormTurmaItem
 import com.unbpocket.core.parser.ParsedAvaHome
 import com.unbpocket.core.parser.ParsedAvaNoticiaRef
+import com.unbpocket.core.parser.ScheduleSelectionResolver
 import com.unbpocket.core.parser.TurmaVirtualParser
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.ConcurrentHashMap
@@ -43,7 +45,10 @@ class TurmasRepositoryImpl(
     private val coordinator: SigaaSessionCoordinator,
     private val cacheStore: SnapshotCacheStore,
     private val fileStore: FileStore,
+    private val clockMillis: () -> Long = { System.currentTimeMillis() },
 ) : TurmasRepository {
+    override fun resolveDiaAtualSigaa(nowEpochMillis: Long?): DiaSemanaSigaa =
+        ScheduleSelectionResolver.resolveCurrentSigaaDay(nowEpochMillis ?: clockMillis())
     private val runtimeAvaCache = ConcurrentHashMap<String, ParsedAvaHome>()
     @Volatile
     private var currentAvaHomeTurmaId: String? = null

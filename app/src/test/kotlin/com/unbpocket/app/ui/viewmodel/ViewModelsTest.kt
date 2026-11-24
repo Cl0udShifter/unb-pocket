@@ -21,6 +21,7 @@ import com.unbpocket.core.model.ru.NoticiaRu
 import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.RuDeepLinkTarget
 import com.unbpocket.core.model.ru.TipoRefeicao
+import com.unbpocket.core.model.turmas.DiaSemanaSigaa
 import com.unbpocket.core.model.turmas.NoticiaTurmaAva
 import com.unbpocket.core.model.turmas.NoticiaTurmaResumoAva
 import com.unbpocket.core.model.turmas.TurmaDetalheAva
@@ -726,6 +727,80 @@ class ViewModelsTest {
         turmasVm.refreshSemestre()
         advanceUntilIdle()
         assertEquals(listOf(false, true), core.turmasFake.refreshSemestreEnriquecerHistory)
+        turmasCol.cancel()
+    }
+
+    @Test
+    fun `RuViewModel and TurmasViewModel auto-select current day and meal on launch and resume`() = runTest {
+        val core = FakeUnbPocketCore()
+        val menu = CardapioSemanalRu(
+            campus = CampusRu.DARCY_RIBEIRO,
+            semanaLabel = "23/11 a 27/11",
+            pdfUrl = "https://ru.unb.br/darcy.pdf",
+            fallbackImageUrl = null,
+            localPdfPath = null,
+            modifiedGmt = "2026-11-23T08:00:00",
+            parserStatus = CardapioParserStatus.PARSED_STRUCTURED,
+            dias = listOf(
+                CardapioDiaRu("23/11/2026", "Segunda-feira", emptyMap()),
+                CardapioDiaRu("24/11/2026", "Terça-feira", emptyMap()),
+                CardapioDiaRu("25/11/2026", "Quarta-feira", emptyMap()),
+            ),
+        )
+        core.ruFake.cardapios.value = mapOf(
+            CampusRu.DARCY_RIBEIRO to SyncedData(menu, DataOrigin.CACHE, 1000L),
+        )
+        core.ruFake.nextSelecaoInicial = com.unbpocket.core.model.ru.RuSelecaoInicial(
+            dayIndex = 1,
+            refeicao = TipoRefeicao.CAFE_DA_MANHA,
+        )
+        core.turmasFake.nextDiaAtualSigaa = DiaSemanaSigaa.TERCA
+
+        val ruVm = RuViewModel(core)
+        val ruCol = backgroundScope.launch(testDispatcher) { ruVm.uiState.collect() }
+        val turmasVm = TurmasViewModel(core)
+        val turmasCol = backgroundScope.launch(testDispatcher) { turmasVm.listUiState.collect() }
+        advanceUntilIdle()
+
+        assertEquals(1, ruVm.uiState.value.selectedDayIndex)
+        assertEquals(TipoRefeicao.CAFE_DA_MANHA, ruVm.uiState.value.selectedMeal)
+        assertEquals(DiaSemanaSigaa.TERCA, turmasVm.listUiState.value.selectedDay)
+        assertEquals(DiaSemanaSigaa.TERCA, turmasVm.listUiState.value.todayDay)
+
+        // Same day resume updates automatic meal window without losing manual day override
+        core.ruFake.nextSelecaoInicial = com.unbpocket.core.model.ru.RuSelecaoInicial(
+            dayIndex = 1,
+            refeicao = TipoRefeicao.ALMOCO,
+        )
+        ruVm.syncAutomaticSelectionOnResume(today = java.time.LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo")))
+        advanceUntilIdle()
+        assertEquals(TipoRefeicao.ALMOCO, ruVm.uiState.value.selectedMeal)
+
+        // Manual override preserved on same day, reset when calendar day rolls over
+        ruVm.selectDay(0)
+        ruVm.selectMeal(TipoRefeicao.JANTAR)
+        turmasVm.selectDay(DiaSemanaSigaa.SEXTA)
+        advanceUntilIdle()
+        assertEquals(0, ruVm.uiState.value.selectedDayIndex)
+        assertEquals(TipoRefeicao.JANTAR, ruVm.uiState.value.selectedMeal)
+        assertEquals(DiaSemanaSigaa.SEXTA, turmasVm.listUiState.value.selectedDay)
+
+        val tomorrow = java.time.LocalDate.now(java.time.ZoneId.of("America/Sao_Paulo")).plusDays(1)
+        core.ruFake.nextSelecaoInicial = com.unbpocket.core.model.ru.RuSelecaoInicial(
+            dayIndex = 2,
+            refeicao = TipoRefeicao.CAFE_DA_MANHA,
+        )
+        core.turmasFake.nextDiaAtualSigaa = DiaSemanaSigaa.QUARTA
+        ruVm.syncAutomaticSelectionOnResume(today = tomorrow)
+        turmasVm.syncAutomaticDayOnResume(today = tomorrow)
+        advanceUntilIdle()
+
+        assertEquals(2, ruVm.uiState.value.selectedDayIndex)
+        assertEquals(TipoRefeicao.CAFE_DA_MANHA, ruVm.uiState.value.selectedMeal)
+        assertEquals(DiaSemanaSigaa.QUARTA, turmasVm.listUiState.value.selectedDay)
+        assertEquals(DiaSemanaSigaa.QUARTA, turmasVm.listUiState.value.todayDay)
+
+        ruCol.cancel()
         turmasCol.cancel()
     }
 }

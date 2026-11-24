@@ -20,6 +20,7 @@ Thumbs.db
 *.keystore
 *.p12
 *.pem
+keystore.properties
 google-services.json
 
 # Captured dumps / local fixtures with personal data

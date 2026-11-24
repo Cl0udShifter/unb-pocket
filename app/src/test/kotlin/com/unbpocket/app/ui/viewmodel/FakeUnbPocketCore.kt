@@ -29,12 +29,14 @@ import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.RuNotificacaoConfig
 import com.unbpocket.core.model.ru.RuNotificacaoConteudo
 import com.unbpocket.core.model.ru.RuPreferencias
+import com.unbpocket.core.model.ru.RuSelecaoInicial
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.ArquivoBaixado
 import com.unbpocket.core.model.turmas.AtualizacaoTurmaFeed
 import com.unbpocket.core.model.turmas.AvaliacaoTurma
+import com.unbpocket.core.model.turmas.DiaSemanaSigaa
 import com.unbpocket.core.model.turmas.MapaFrequenciaTurma
 import com.unbpocket.core.model.turmas.NotasParciaisTurma
 import com.unbpocket.core.model.turmas.NoticiaTurmaAva
@@ -192,6 +194,7 @@ class FakeRuRepository : RuRepository {
     var nextRefreshCardapioResult: CoreResult<CardapioSemanalRu>? = null
     var nextSyncCardapiosResult: CoreResult<RuAutoSyncSummary>? = null
     var nextRefreshNoticiasResult: CoreResult<List<NoticiaRu>>? = null
+    var nextSelecaoInicial: RuSelecaoInicial = RuSelecaoInicial(dayIndex = 0, refeicao = TipoRefeicao.ALMOCO)
 
     override fun observePreferencias(): Flow<RuPreferencias> = preferencias
 
@@ -220,6 +223,11 @@ class FakeRuRepository : RuRepository {
         refeicao: TipoRefeicao,
         nowEpochMillis: Long,
     ): CoreResult<RuNotificacaoConteudo?> = CoreResult.Success(null)
+
+    override fun resolveSelecaoInicial(
+        cardapio: CardapioSemanalRu?,
+        nowEpochMillis: Long?,
+    ): RuSelecaoInicial = nextSelecaoInicial
 
     override fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?> =
         cardapios.map { it[campus] }
@@ -321,6 +329,10 @@ class FakeTurmasRepository : TurmasRepository {
     var downloadedMaterialResult: CoreResult<ArquivoBaixado> = CoreResult.Success(
         ArquivoBaixado("slides.pdf", "application/pdf", "/tmp/slides.pdf", 120L),
     )
+
+    var nextDiaAtualSigaa: DiaSemanaSigaa = DiaSemanaSigaa.SEGUNDA
+
+    override fun resolveDiaAtualSigaa(nowEpochMillis: Long?): DiaSemanaSigaa = nextDiaAtualSigaa
 
     override fun observeTurmasSemestre(): Flow<SyncedData<List<TurmaResumo>>?> = turmas
     override fun observeAtualizacoesFeed(): Flow<SyncedData<List<AtualizacaoTurmaFeed>>?> = atualizacoes

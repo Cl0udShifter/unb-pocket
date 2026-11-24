@@ -165,6 +165,7 @@ object UnbPocketCoreFactory {
             coordinator = coordinator,
             cacheStore = cacheStore,
             fileStore = fileStore,
+            clockMillis = clockMillis,
         )
         val discenteRepo = DiscenteRepositoryImpl(
             coordinator = coordinator,

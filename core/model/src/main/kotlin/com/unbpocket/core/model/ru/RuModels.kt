@@ -131,6 +131,11 @@ data class CardapioSemanalRu(
     val dias: List<CardapioDiaRu>,
 )
 
+data class RuSelecaoInicial(
+    val dayIndex: Int,
+    val refeicao: TipoRefeicao,
+)
+
 data class TransacaoRu(
     val dataHoraTexto: String,
     val descricao: String,

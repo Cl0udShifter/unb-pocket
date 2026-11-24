@@ -139,6 +139,8 @@ fun UnbPocketApp(
     }
 
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
+        ruViewModel.syncAutomaticSelectionOnResume()
+        turmasViewModel.syncAutomaticDayOnResume()
         ruViewModel.refreshIfStaleSilently()
     }
 

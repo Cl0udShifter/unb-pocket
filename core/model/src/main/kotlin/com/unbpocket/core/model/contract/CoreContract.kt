@@ -20,12 +20,14 @@ import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.RuNotificacaoConfig
 import com.unbpocket.core.model.ru.RuNotificacaoConteudo
 import com.unbpocket.core.model.ru.RuPreferencias
+import com.unbpocket.core.model.ru.RuSelecaoInicial
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.model.ru.TipoRefeicao
 import com.unbpocket.core.model.turmas.ArquivoBaixado
 import com.unbpocket.core.model.turmas.AtualizacaoTurmaFeed
 import com.unbpocket.core.model.turmas.AvaliacaoTurma
+import com.unbpocket.core.model.turmas.DiaSemanaSigaa
 import com.unbpocket.core.model.turmas.MapaFrequenciaTurma
 import com.unbpocket.core.model.turmas.NotasParciaisTurma
 import com.unbpocket.core.model.turmas.NoticiaTurmaAva
@@ -70,6 +72,11 @@ interface RuRepository {
         nowEpochMillis: Long = System.currentTimeMillis(),
     ): CoreResult<RuNotificacaoConteudo?>
 
+    fun resolveSelecaoInicial(
+        cardapio: CardapioSemanalRu?,
+        nowEpochMillis: Long? = null,
+    ): RuSelecaoInicial
+
     fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?>
 
     suspend fun refreshCardapio(
@@ -103,6 +110,8 @@ interface RuRepository {
  * Contrato da Tela 2 (Turmas do semestre, feed, grade horaria e interior da Turma Virtual).
  */
 interface TurmasRepository {
+    fun resolveDiaAtualSigaa(nowEpochMillis: Long? = null): DiaSemanaSigaa
+
     fun observeTurmasSemestre(): Flow<SyncedData<List<TurmaResumo>>?>
 
     fun observeAtualizacoesFeed(): Flow<SyncedData<List<AtualizacaoTurmaFeed>>?>

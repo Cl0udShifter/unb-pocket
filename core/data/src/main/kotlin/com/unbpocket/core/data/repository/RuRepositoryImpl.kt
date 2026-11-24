@@ -26,6 +26,7 @@ import com.unbpocket.core.model.ru.RuAutoSyncSummary
 import com.unbpocket.core.model.ru.RuNotificacaoConfig
 import com.unbpocket.core.model.ru.RuNotificacaoConteudo
 import com.unbpocket.core.model.ru.RuPreferencias
+import com.unbpocket.core.model.ru.RuSelecaoInicial
 import com.unbpocket.core.model.ru.SaldoExtratoRu
 import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.model.ru.TipoRefeicao
@@ -39,6 +40,7 @@ import com.unbpocket.core.parser.RuMenuPdfParser
 import com.unbpocket.core.parser.RuNotificationPlanner
 import com.unbpocket.core.parser.RuWpMenuPage
 import com.unbpocket.core.parser.RuWpParser
+import com.unbpocket.core.parser.ScheduleSelectionResolver
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -117,6 +119,14 @@ class RuRepositoryImpl(
     }.fold(
         onSuccess = { CoreResult.Success(it) },
         onFailure = { CoreResult.Failure(CoreError.StorageError("prepareNotificacaoRefeicao", it.message.orEmpty())) },
+    )
+
+    override fun resolveSelecaoInicial(
+        cardapio: CardapioSemanalRu?,
+        nowEpochMillis: Long?,
+    ): RuSelecaoInicial = ScheduleSelectionResolver.resolveRuInitialSelection(
+        cardapio = cardapio,
+        nowEpochMillis = nowEpochMillis ?: clockMillis(),
     )
 
     override suspend fun markNoticiasVistas(ids: Set<Long>): CoreResult<Unit> = runCatching {

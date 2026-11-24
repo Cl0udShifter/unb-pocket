@@ -99,6 +99,7 @@ Nenhuma excecao de rede, SQLite, PDF ou HTML chega crua a UI. Toda falha e conve
 * `ItemCardapioRu(categoria: String, prato: String, alergenicos: List<Alergenico>)`
 * `CardapioDiaRu(dataTexto: String, diaSemana: String, refeicoes: Map<TipoRefeicao, List<ItemCardapioRu>>)`
 * `CardapioSemanalRu(campus: CampusRu, semanaLabel: String, pdfUrl: String, fallbackImageUrl: String?, localPdfPath: String?, modifiedGmt: String, parserStatus: CardapioParserStatus, dias: List<CardapioDiaRu>)`
+* `RuSelecaoInicial(dayIndex: Int, refeicao: TipoRefeicao)` (selecao automatica de dia e refeicao atuais no fuso `America/Sao_Paulo`: `<= 09:30` Cafe da Manha, `09:31..14:30` Almoco, `14:31..23:59` Jantar)
 * `TransacaoRu(dataHoraTexto: String, descricao: String, valorCentavos: Long)`
 * `RefeicoesRestantes(cafesRestantes: Int, almocosOuJantaresRestantes: Int, trocoCafeCentavos: Long, trocoAlmocoJantarCentavos: Long, gratuito: Boolean)`
 * `SaldoExtratoRu(saldoAtualCentavos: Long, saldoAnterior7DiasCentavos: Long?, grupoAcesso: GrupoAcessoRu, transacoesUltimos7Dias: List<TransacaoRu>, refeicoesRestantes: RefeicoesRestantes?)`
@@ -203,6 +204,8 @@ interface UnbPocketCore {
   * Persiste `RuNotificacaoConfig` no DataStore e sincroniza o agendamento de alarmes locais via `AlarmManager` (`RuMealAlarmScheduler` + `RuNotificationAlarmReceiver`, com WorkManager de contingencia quando alarmes exatos estiverem bloqueados, catch-up de refeicoes do dia dentro da janela e re-agendamento automatico apos boot, troca de hora ou permissao concedida) para disparar `1h` antes de cada refeicao habilitada (`06h` Cafe da Manha, `10h` Almoco, `16h` Jantar no fuso `America/Sao_Paulo`).
 * `suspend fun prepareNotificacaoRefeicao(refeicao: TipoRefeicao, nowEpochMillis: Long = System.currentTimeMillis()): CoreResult<RuNotificacaoConteudo?>`
   * Verifica se `(dia atual, refeicao)` esta ativo em `RuNotificacaoConfig`; caso necessario tenta sincronizar o cardapio do campus ativo e monta o resumo com os pratos principais aplicando `alergenicosRestritos` e `ocultarPratosComAlergenicos`. Retorna lembrete em modo fallback seguro caso o cardapio esteja em imagem/PDF ou sem pratos para a data, e retorna `null` apenas quando a refeicao estiver desativada no dia.
+* `fun resolveSelecaoInicial(cardapio: CardapioSemanalRu?, nowEpochMillis: Long? = null): RuSelecaoInicial`
+  * Resolve no fuso `America/Sao_Paulo` o indice do dia atual dentro de `cardapio.dias` (priorizando data exata, depois dia da semana e fallback `0`) e a refeicao ativa (`<= 09:30` Cafe da Manha, `09:31..14:30` Almoco, `>= 14:31` Jantar).
 * `fun observeCardapio(campus: CampusRu): Flow<SyncedData<CardapioSemanalRu>?>`
 * `suspend fun refreshCardapio(campus: CampusRu, force: Boolean = false): CoreResult<CardapioSemanalRu>`
 * `suspend fun syncCardapiosIfNeeded(forceCheck: Boolean = false, includeExtras: Boolean = false): CoreResult<RuAutoSyncSummary>`
@@ -219,6 +222,7 @@ interface UnbPocketCore {
 * `suspend fun downloadCardapioPdfLocal(campus: CampusRu): CoreResult<String>`
 
 ### 4.4 `TurmasRepository` (Tela 2: Turmas)
+* `fun resolveDiaAtualSigaa(nowEpochMillis: Long? = null): DiaSemanaSigaa` (resolve o dia letivo atual no fuso `America/Sao_Paulo`, mapeando domingo para `DiaSemanaSigaa.SEGUNDA`)
 * `fun observeTurmasSemestre(): Flow<SyncedData<List<TurmaResumo>>?>`
 * `fun observeAtualizacoesFeed(): Flow<SyncedData<List<AtualizacaoTurmaFeed>>?>`
 * `suspend fun refreshTurmasSemestre(enriquecerViaAtestado: Boolean = true): CoreResult<List<TurmaResumo>>`

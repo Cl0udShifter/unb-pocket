@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.ZoneId
 
 enum class TurmasListTab {
     AULAS_DO_DIA,
@@ -86,7 +88,8 @@ data class TurmaVirtualUiState(
 
 private data class TurmasListControl(
     val selectedListTab: TurmasListTab = TurmasListTab.AULAS_DO_DIA,
-    val selectedDay: DiaSemanaSigaa = Formatters.currentSigaaDay(),
+    val selectedDay: DiaSemanaSigaa? = null,
+    val clockTick: Long = 0L,
     val expandedClassTurmaId: String? = null,
     val isRefreshingList: Boolean = false,
     val listError: UiErrorBanner? = null,
@@ -109,6 +112,8 @@ class TurmasViewModel(
     private val core: UnbPocketCore,
 ) : ViewModel() {
 
+    private val brasiliaZone = ZoneId.of("America/Sao_Paulo")
+    private var lastResumeDate: LocalDate = LocalDate.now(brasiliaZone)
     private val listControl = MutableStateFlow(TurmasListControl())
     private val activeTurmaId = MutableStateFlow<String?>(null)
     private val detailControl = MutableStateFlow(TurmaDetailControl())
@@ -139,11 +144,12 @@ class TurmasViewModel(
         core.turmas.observeAtualizacoesFeed(),
         listControl,
     ) { auth, (hasResolvedCache, turmas), atualizacoes, ctrl ->
+        val today = core.turmas.resolveDiaAtualSigaa()
         TurmasUiState(
             authState = auth,
             selectedListTab = ctrl.selectedListTab,
-            selectedDay = ctrl.selectedDay,
-            todayDay = Formatters.currentSigaaDay(),
+            selectedDay = ctrl.selectedDay ?: today,
+            todayDay = today,
             expandedClassTurmaId = ctrl.expandedClassTurmaId,
             turmas = turmas,
             atualizacoes = atualizacoes,
@@ -154,7 +160,11 @@ class TurmasViewModel(
     }.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = TurmasUiState(authState = core.auth.authState.value),
+        initialValue = TurmasUiState(
+            authState = core.auth.authState.value,
+            selectedDay = core.turmas.resolveDiaAtualSigaa(),
+            todayDay = core.turmas.resolveDiaAtualSigaa(),
+        ),
     )
 
     private val detalheFlow: Flow<SyncedData<TurmaDetalheAva>?> = activeTurmaId.flatMapLatest { id ->
@@ -235,6 +245,22 @@ class TurmasViewModel(
 
     fun selectDay(day: DiaSemanaSigaa) {
         listControl.update { it.copy(selectedDay = day, expandedClassTurmaId = null) }
+    }
+
+    fun syncAutomaticDayOnResume(today: LocalDate = LocalDate.now(brasiliaZone)) {
+        val dayChanged = today != lastResumeDate
+        lastResumeDate = today
+        listControl.update { ctrl ->
+            if (dayChanged) {
+                ctrl.copy(
+                    selectedDay = null,
+                    expandedClassTurmaId = null,
+                    clockTick = ctrl.clockTick + 1L,
+                )
+            } else {
+                ctrl.copy(clockTick = ctrl.clockTick + 1L)
+            }
+        }
     }
 
     fun toggleExpandedClass(frontEndIdTurma: String) {
