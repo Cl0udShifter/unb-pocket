@@ -16,6 +16,25 @@
 
 ---
 
+## Telas do aplicativo
+
+<div align="center">
+  <table>
+    <tr>
+      <td align="center"><strong>Cardapio RU</strong></td>
+      <td align="center"><strong>Aulas &amp; Turmas</strong></td>
+      <td align="center"><strong>Perfil Discente</strong></td>
+    </tr>
+    <tr>
+      <td><img src="docs/assets/screenshot-ru.jpg" alt="Tela Cardapio RU" width="240" /></td>
+      <td><img src="docs/assets/screenshot-turmas.jpg" alt="Tela Aulas e Turmas" width="240" /></td>
+      <td><img src="docs/assets/screenshot-discente.jpg" alt="Tela Perfil Discente" width="240" /></td>
+    </tr>
+  </table>
+</div>
+
+---
+
 ## O que o app faz
 
 ### Cardapio do Restaurante Universitario (RU)
