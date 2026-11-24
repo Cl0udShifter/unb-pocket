@@ -3,6 +3,6 @@
     <style name="Theme.UnbPocket" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/unb_splash_bg</item>
         <item name="android:windowSplashScreenBackground">@color/unb_splash_bg</item>
-        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
     </style>
 </resources>
