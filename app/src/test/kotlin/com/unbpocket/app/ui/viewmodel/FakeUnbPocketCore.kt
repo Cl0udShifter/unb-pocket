@@ -66,6 +66,9 @@ class FakeUnbPocketCore : UnbPocketCore {
     var startBackgroundPreloadCalls: Int = 0
     var syncPortalHomeCalls: Int = 0
     var silentRefreshCalls: Int = 0
+    var lastSilentRefreshIncludeTurmaDetails: Boolean? = null
+    var refreshDiscentePerfilESaldoCalls: Int = 0
+    var lastRefreshPerfilForceFoto: Boolean? = null
 
     private val _preloadProgress = MutableStateFlow(PreloadProgress())
     override val preloadProgress: StateFlow<PreloadProgress> = _preloadProgress.asStateFlow()
@@ -83,6 +86,18 @@ class FakeUnbPocketCore : UnbPocketCore {
         return syncPortalResult
     }
 
+    override suspend fun refreshDiscentePerfilESaldo(
+        forceDownloadFoto: Boolean,
+    ): CoreResult<DiscenteResumo> {
+        refreshDiscentePerfilESaldoCalls++
+        lastRefreshPerfilForceFoto = forceDownloadFoto
+        val profileRes = discenteFake.refreshDiscenteResumo()
+        if (profileRes is CoreResult.Success) {
+            ruFake.refreshSaldoExtrato()
+        }
+        return profileRes
+    }
+
     override fun startBackgroundPreload(includeTurmaDetails: Boolean) {
         startBackgroundPreloadCalls++
         _preloadProgress.value = PreloadProgress(
@@ -94,6 +109,7 @@ class FakeUnbPocketCore : UnbPocketCore {
 
     override suspend fun silentRefreshAll(includeTurmaDetails: Boolean): CoreResult<PortalHomeSyncSummary> {
         silentRefreshCalls++
+        lastSilentRefreshIncludeTurmaDetails = includeTurmaDetails
         when (val session = authFake.ensureValidSession()) {
             is CoreResult.Failure -> return session
             is CoreResult.Success -> Unit
@@ -298,6 +314,7 @@ class FakeTurmasRepository : TurmasRepository {
     var refreshFrequenciaCalls = 0
     var refreshNotasCalls = 0
     var getNoticiaCompletaCalls = 0
+    val refreshSemestreEnriquecerHistory = mutableListOf<Boolean>()
     var nextRefreshSemestreResult: CoreResult<List<TurmaResumo>>? = null
     var nextRefreshDetalheResult: CoreResult<TurmaDetalheAva>? = null
     var onGetNoticiaCompleta: (suspend (String, String) -> CoreResult<NoticiaTurmaAva>)? = null
@@ -307,8 +324,10 @@ class FakeTurmasRepository : TurmasRepository {
 
     override fun observeTurmasSemestre(): Flow<SyncedData<List<TurmaResumo>>?> = turmas
     override fun observeAtualizacoesFeed(): Flow<SyncedData<List<AtualizacaoTurmaFeed>>?> = atualizacoes
-    override suspend fun refreshTurmasSemestre(enriquecerViaAtestado: Boolean): CoreResult<List<TurmaResumo>> =
-        nextRefreshSemestreResult ?: CoreResult.Success(turmas.value?.value.orEmpty())
+    override suspend fun refreshTurmasSemestre(enriquecerViaAtestado: Boolean): CoreResult<List<TurmaResumo>> {
+        refreshSemestreEnriquecerHistory += enriquecerViaAtestado
+        return nextRefreshSemestreResult ?: CoreResult.Success(turmas.value?.value.orEmpty())
+    }
 
     override fun observeTurmaDetalhe(frontEndIdTurma: String): Flow<SyncedData<TurmaDetalheAva>?> = detalhe
     override suspend fun refreshTurmaDetalhe(frontEndIdTurma: String): CoreResult<TurmaDetalheAva> {

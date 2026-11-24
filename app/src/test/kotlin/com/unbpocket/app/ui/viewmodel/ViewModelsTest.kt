@@ -691,4 +691,41 @@ class ViewModelsTest {
 
         collector.cancel()
     }
+
+    @Test
+    fun `scoped pull-to-refresh and cold start avoid full app sync`() = runTest {
+        val core = FakeUnbPocketCore()
+        core.authFake.savedCredentials = true
+
+        // 1. Cold start com credenciais salvas faz silentRefreshAll sem varrer todas as turmas
+        val authVm = AuthViewModel(core)
+        val authCol = backgroundScope.launch(testDispatcher) { authVm.uiState.collect() }
+        advanceUntilIdle()
+        assertEquals(1, core.silentRefreshCalls)
+        assertEquals(false, core.lastSilentRefreshIncludeTurmaDetails)
+        authCol.cancel()
+
+        // 2. Pull-to-refresh na tela Discente usa chamada combinada sem rebaixar foto
+        val discenteVm = DiscenteViewModel(core)
+        val discenteCol = backgroundScope.launch(testDispatcher) { discenteVm.uiState.collect() }
+        advanceUntilIdle()
+        discenteVm.refreshProfileAndSaldo()
+        advanceUntilIdle()
+        assertEquals(1, core.refreshDiscentePerfilESaldoCalls)
+        assertEquals(false, core.lastRefreshPerfilForceFoto)
+        discenteCol.cancel()
+
+        // 3. Pull-to-refresh em Turmas pula atestado quando na aba de Avisos
+        val turmasVm = TurmasViewModel(core)
+        val turmasCol = backgroundScope.launch(testDispatcher) { turmasVm.listUiState.collect() }
+        advanceUntilIdle()
+        turmasVm.selectListTab(TurmasListTab.ATUALIZACOES)
+        turmasVm.refreshSemestre()
+        advanceUntilIdle()
+        turmasVm.selectListTab(TurmasListTab.AULAS_DO_DIA)
+        turmasVm.refreshSemestre()
+        advanceUntilIdle()
+        assertEquals(listOf(false, true), core.turmasFake.refreshSemestreEnriquecerHistory)
+        turmasCol.cancel()
+    }
 }

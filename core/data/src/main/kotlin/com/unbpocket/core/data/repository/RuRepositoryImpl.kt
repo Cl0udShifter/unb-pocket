@@ -303,14 +303,13 @@ class RuRepositoryImpl(
             return CoreResult.Failure(CoreError.StorageError("saveCardapioPdf", error.message.orEmpty()))
         }
 
-        val fallbackImageUrl = findFallbackImageUrl(campusLink.pdfUrl, campus)
         val parsedMenuResult = when (val pages = pdfExtractor.extractRuMenuPages(pdfPayload.bytes)) {
             is CoreResult.Failure -> pages
             is CoreResult.Success -> RuMenuPdfParser.parsePages(
                 campus = campus,
                 semanaLabel = campusLink.semanaLabel,
                 pdfUrl = campusLink.pdfUrl,
-                fallbackImageUrl = fallbackImageUrl,
+                fallbackImageUrl = null,
                 localPdfPath = localPdfFile.absolutePath,
                 modifiedGmt = modifiedGmt,
                 pages = pages.value,
@@ -332,6 +331,7 @@ class RuRepositoryImpl(
                 CoreResult.Success(parsedMenuResult.value to changed)
             }
             is CoreResult.Failure -> {
+                val fallbackImageUrl = findFallbackImageUrl(campusLink.pdfUrl, campus)
                 val fallback = CardapioSemanalRu(
                     campus = campus,
                     semanaLabel = campusLink.semanaLabel,
@@ -428,11 +428,22 @@ class RuRepositoryImpl(
             )
         }
 
-    override suspend fun refreshTabelaPrecos(force: Boolean): CoreResult<TabelaPrecosRu> =
-        when (val res = refreshTabelaPrecosWithDiff()) {
+    override suspend fun refreshTabelaPrecos(force: Boolean): CoreResult<TabelaPrecosRu> {
+        if (!force) {
+            val cached = cacheStore.get(
+                cacheKey = SnapshotCacheStore.Keys.RU_PRECOS,
+                serializer = TabelaPrecosRuDto.serializer(),
+                fromDto = CacheMappers::fromDto,
+            )
+            if (cached != null && cached.origin == DataOrigin.REMOTE) {
+                return CoreResult.Success(cached.value)
+            }
+        }
+        return when (val res = refreshTabelaPrecosWithDiff()) {
             is CoreResult.Failure -> res
             is CoreResult.Success -> CoreResult.Success(res.value.first)
         }
+    }
 
     private suspend fun refreshTabelaPrecosWithDiff(): CoreResult<Pair<TabelaPrecosRu, Boolean>> {
         val payload = when (val res = transport.get(transport.endpoints.ruPrecosPageUrl)) {

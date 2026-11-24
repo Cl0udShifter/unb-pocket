@@ -20,6 +20,8 @@ import com.unbpocket.core.model.ru.TabelaPrecosRu
 import com.unbpocket.core.model.ru.TipoRefeicao
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -302,8 +304,11 @@ class RuViewModel(
         if (controlState.value.isRefreshingExtras) return
         viewModelScope.launch {
             controlState.update { it.copy(isRefreshingExtras = true, extrasError = null) }
-            val precosRes = core.ru.refreshTabelaPrecos(force = force)
-            val noticiasRes = core.ru.refreshNoticias(perPage = 10)
+            val (precosRes, noticiasRes) = coroutineScope {
+                val precosDeferred = async { core.ru.refreshTabelaPrecos(force = force) }
+                val noticiasDeferred = async { core.ru.refreshNoticias(perPage = 10) }
+                precosDeferred.await() to noticiasDeferred.await()
+            }
             if (controlState.value.isNoticesAndPricesSheetOpen && noticiasRes is CoreResult.Success) {
                 val ids = noticiasRes.value.mapTo(linkedSetOf()) { it.id }
                 if (ids.isNotEmpty()) {

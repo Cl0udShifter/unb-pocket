@@ -47,10 +47,16 @@ class TurmasRepositoryImpl(
     private val runtimeAvaCache = ConcurrentHashMap<String, ParsedAvaHome>()
     @Volatile
     private var currentAvaHomeTurmaId: String? = null
+    @Volatile
+    private var currentAvaMenuTurmaId: String? = null
+    @Volatile
+    private var currentAvaMenuActions: Map<String, Map<String, String>> = emptyMap()
 
     internal fun clearRuntimeState() {
         runtimeAvaCache.clear()
         currentAvaHomeTurmaId = null
+        currentAvaMenuTurmaId = null
+        currentAvaMenuActions = emptyMap()
     }
 
     override fun observeTurmasSemestre(): Flow<SyncedData<List<TurmaResumo>>?> =
@@ -78,6 +84,7 @@ class TurmasRepositoryImpl(
                     nav = nav,
                     homeHtml = homeHtml,
                     enriquecerViaAtestado = enriquecerViaAtestado,
+                    reuseHomeHtmlForAtestado = true,
                 )
             ) {
                 is CoreResult.Failure -> res
@@ -96,6 +103,7 @@ class TurmasRepositoryImpl(
         nav: SigaaNavigator,
         homeHtml: String,
         enriquecerViaAtestado: Boolean,
+        reuseHomeHtmlForAtestado: Boolean = false,
     ): CoreResult<Pair<List<TurmaResumo>, Boolean>> {
         val now = nav.nowMillis()
         val feed = DiscentePortalParser.parseAtualizacoesFeed(homeHtml)
@@ -111,9 +119,18 @@ class TurmasRepositoryImpl(
 
         val homeTurmas = DiscentePortalParser.parseTurmasDaHome(homeHtml).map { it.resumo }
         val existingByFrontEndId = getCachedTurmasSnapshot().associateBy { it.frontEndIdTurma }
+        val needsAtestadoEnrichment = enriquecerViaAtestado && homeTurmas.any { turma ->
+            val prev = existingByFrontEndId[turma.frontEndIdTurma]
+            prev == null || prev.codigoDisciplina.isNullOrBlank() || prev.docenteNome.isNullOrBlank()
+        }
 
-        val atestadoItems: List<AtestadoTurmaItem> = if (enriquecerViaAtestado && homeTurmas.isNotEmpty()) {
-            when (val atestadoRes = nav.postMenuDiscenteAction(ACTION_ATESTADO_MATRICULA)) {
+        val atestadoItems: List<AtestadoTurmaItem> = if (needsAtestadoEnrichment) {
+            when (
+                val atestadoRes = nav.postMenuDiscenteAction(
+                    jscookAction = ACTION_ATESTADO_MATRICULA,
+                    existingHomeHtml = if (reuseHomeHtmlForAtestado) homeHtml else null,
+                )
+            ) {
                 is CoreResult.Failure -> {
                     if (atestadoRes.error is CoreError.SessionExpired) return atestadoRes
                     emptyList()
@@ -491,6 +508,46 @@ class TurmasRepositoryImpl(
         priority: JsfPriority,
         parser: (String) -> CoreResult<T>,
     ): CoreResult<Pair<T, Boolean>> = coordinator.withAuthenticatedJsf(priority = priority) { nav ->
+        val directMenuParams = if (currentAvaMenuTurmaId == frontEndIdTurma) {
+            currentAvaMenuActions[menuLabel]
+        } else {
+            null
+        }
+
+        if (directMenuParams != null) {
+            currentAvaHomeTurmaId = null
+            when (val directRes = nav.postAvaForm(directMenuParams)) {
+                is CoreResult.Failure -> {
+                    currentAvaMenuTurmaId = null
+                    currentAvaMenuActions = emptyMap()
+                    if (directRes.error is CoreError.SessionExpired ||
+                        directRes.error is CoreError.NetworkUnavailable
+                    ) {
+                        return@withAuthenticatedJsf directRes
+                    }
+                }
+                is CoreResult.Success -> {
+                    val directHtml = directRes.value.decodeSigaaIso88591()
+                    val directParsed = parser(directHtml)
+                    if (directParsed is CoreResult.Success) {
+                        updateActiveAvaMenuState(frontEndIdTurma, directHtml)
+                        val menuChanged = cacheStore.put(
+                            cacheKey = cacheKey,
+                            domain = SnapshotCacheStore.Domains.TURMAS,
+                            origin = DataOrigin.REMOTE,
+                            syncedAtEpochMillis = nav.nowMillis(),
+                            value = directParsed.value,
+                            serializer = serializer,
+                            toDto = toDto,
+                        )
+                        return@withAuthenticatedJsf CoreResult.Success(directParsed.value to menuChanged)
+                    }
+                    currentAvaMenuTurmaId = null
+                    currentAvaMenuActions = emptyMap()
+                }
+            }
+        }
+
         val (avaHome, detailChanged) = when (val entered = enterAvaHomeLocked(nav, frontEndIdTurma)) {
             is CoreResult.Failure -> return@withAuthenticatedJsf entered
             is CoreResult.Success -> entered.value
@@ -503,11 +560,18 @@ class TurmasRepositoryImpl(
 
         currentAvaHomeTurmaId = null
         val menuPayload = when (val res = nav.postAvaForm(menuParams)) {
-            is CoreResult.Failure -> return@withAuthenticatedJsf res
+            is CoreResult.Failure -> {
+                currentAvaMenuTurmaId = null
+                currentAvaMenuActions = emptyMap()
+                return@withAuthenticatedJsf res
+            }
             is CoreResult.Success -> res.value
         }
 
-        when (val parsed = parser(menuPayload.decodeSigaaIso88591())) {
+        val menuHtml = menuPayload.decodeSigaaIso88591()
+        updateActiveAvaMenuState(frontEndIdTurma, menuHtml)
+
+        when (val parsed = parser(menuHtml)) {
             is CoreResult.Failure -> parsed
             is CoreResult.Success -> {
                 val menuChanged = cacheStore.put(
@@ -521,6 +585,17 @@ class TurmasRepositoryImpl(
                 )
                 CoreResult.Success(parsed.value to (detailChanged || menuChanged))
             }
+        }
+    }
+
+    private fun updateActiveAvaMenuState(frontEndIdTurma: String, avaHtml: String) {
+        val nextActions = TurmaVirtualParser.parseAvaMenuActions(avaHtml)
+        if (nextActions.isNotEmpty()) {
+            currentAvaMenuTurmaId = frontEndIdTurma
+            currentAvaMenuActions = nextActions
+        } else {
+            currentAvaMenuTurmaId = null
+            currentAvaMenuActions = emptyMap()
         }
     }
 
@@ -554,6 +629,8 @@ class TurmasRepositoryImpl(
 
         runtimeAvaCache[frontEndIdTurma] = parsedAva
         currentAvaHomeTurmaId = frontEndIdTurma
+        currentAvaMenuTurmaId = frontEndIdTurma
+        currentAvaMenuActions = parsedAva.menuActions
         val now = nav.nowMillis()
         val detailChanged = cacheStore.put(
             cacheKey = SnapshotCacheStore.Keys.turmaDetalhe(frontEndIdTurma),

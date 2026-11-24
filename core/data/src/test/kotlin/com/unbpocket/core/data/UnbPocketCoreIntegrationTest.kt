@@ -1595,6 +1595,122 @@ class UnbPocketCoreIntegrationTest {
         )
     }
 
+    @Test
+    fun scopedRefreshReusesAvaSessionSkipsRedundantAtestadoMediaAndHomeFetches() = runTest {
+        val verPortalHits = AtomicInteger(0)
+        val atestadoHits = AtomicInteger(0)
+        val extratoHits = AtomicInteger(0)
+        val enterAvaHits = AtomicInteger(0)
+        val avaPostHits = AtomicInteger(0)
+        val mediaHits = AtomicInteger(0)
+        val precosHits = AtomicInteger(0)
+        val avaMenuSidebar = """
+            <form id="formMenu">
+              <a onclick="jsfcljs(document.getElementById('formMenu'),{'formMenu:freq':'formMenu:freq'},'')"><div class="itemMenu">Frequência</div></a>
+              <a onclick="jsfcljs(document.getElementById('formMenu'),{'formMenu:notas':'formMenu:notas'},'')"><div class="itemMenu">Ver Notas</div></a>
+              <input type="hidden" name="javax.faces.ViewState" value="j_id_ava_next"/>
+            </form>
+        """.trimIndent()
+
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                val path = request.path.orEmpty()
+                val body = request.body.readUtf8()
+                return when {
+                    request.method == "GET" && path.contains("/sigaa/portais/discente/discente.jsf") ->
+                        latin1Response(discenteHomeHtml())
+                    request.method == "GET" && path.contains("/sigaa/verPortalDiscente.do") -> {
+                        verPortalHits.incrementAndGet()
+                        latin1Response(discenteHomeHtml())
+                    }
+                    request.method == "POST" && body.contains("formExibirExtrato") -> {
+                        extratoHits.incrementAndGet()
+                        latin1Response(extratoRuHtml())
+                    }
+                    request.method == "POST" && body.contains("atestadoMatriculaUnb") -> {
+                        atestadoHits.incrementAndGet()
+                        latin1Response(atestadoHtml())
+                    }
+                    request.method == "POST" && body.contains("form_acessarTurmaVirtual") -> {
+                        enterAvaHits.incrementAndGet()
+                        latin1Response(avaHomeHtml())
+                    }
+                    request.method == "POST" && path.contains("/sigaa/ava/index.jsf") &&
+                        (body.contains("formMenu%3Afreq") || body.contains("formMenu:freq")) -> {
+                        avaPostHits.incrementAndGet()
+                        latin1Response(frequenciaHtml().replace("</body>", "$avaMenuSidebar</body>"))
+                    }
+                    request.method == "POST" && path.contains("/sigaa/ava/index.jsf") &&
+                        (body.contains("formMenu%3Anotas") || body.contains("formMenu:notas")) -> {
+                        avaPostHits.incrementAndGet()
+                        latin1Response(notasIndisponiveisHtml().replace("</body>", "$avaMenuSidebar</body>"))
+                    }
+                    path.contains("/wp-json/wp/v2/pages/12853") -> MockResponse().setResponseCode(200).setBody(
+                        """{"id":12853,"modified_gmt":"2026-11-23T08:00:00","content":{"rendered":"<h3>Cardápio Darcy Ribeiro</h3><p><a href=\"${server.url("/uploads/darcy.pdf")}\">23/11 à 29/11</a></p>"}}""",
+                    )
+                    path.contains("/uploads/darcy.pdf") -> pdfResponse("%PDF-1.4 cardapio")
+                    path.contains("/wp-json/wp/v2/media") -> {
+                        mediaHits.incrementAndGet()
+                        MockResponse().setResponseCode(200).setBody("[]")
+                    }
+                    path.contains("slug=precos-e-grupos") -> {
+                        precosHits.incrementAndGet()
+                        MockResponse().setResponseCode(200).setBody(
+                            """[{"id":12859,"modified_gmt":"2026-01-01T00:00:00","content":{"rendered":"<p>Resolução CAD 0037/2025</p>"}}]""",
+                        )
+                    }
+                    else -> MockResponse().setResponseCode(404)
+                }
+            }
+        }
+
+        val core = createCore()
+        assertTrue(core.auth.login(CredentialsInput("190026308", "secret", rememberCredentials = true)) is CoreResult.Success)
+
+        // 1. refreshDiscentePerfilESaldo faz apenas 1 GET na home + 1 POST de extrato
+        verPortalHits.set(0)
+        extratoHits.set(0)
+        assertTrue(core.refreshDiscentePerfilESaldo(forceDownloadFoto = false) is CoreResult.Success)
+        assertEquals(1, verPortalHits.get())
+        assertEquals(1, extratoHits.get())
+
+        // 2. Primeiro refreshTurmasSemestre reutiliza homeHtml para o Atestado (1 GET + 1 POST);
+        //    segundo refresh pula Atestado pois turmas ja estao enriquecidas (1 GET + 0 POST)
+        verPortalHits.set(0)
+        atestadoHits.set(0)
+        assertTrue(core.turmas.refreshTurmasSemestre(enriquecerViaAtestado = true) is CoreResult.Success)
+        assertEquals(1, verPortalHits.get())
+        assertEquals(1, atestadoHits.get())
+
+        verPortalHits.set(0)
+        atestadoHits.set(0)
+        assertTrue(core.turmas.refreshTurmasSemestre(enriquecerViaAtestado = true) is CoreResult.Success)
+        assertEquals(1, verPortalHits.get())
+        assertEquals(0, atestadoHits.get())
+
+        // 3. Sessao AVA reutilizada entre Topicos -> Frequencia -> Notas sem reentrar na home/turma
+        verPortalHits.set(0)
+        enterAvaHits.set(0)
+        avaPostHits.set(0)
+        assertTrue(core.turmas.refreshTurmaDetalhe(frontEndId) is CoreResult.Success)
+        assertTrue(core.turmas.refreshFrequencia(frontEndId) is CoreResult.Success)
+        assertTrue(core.turmas.refreshNotasParciais(frontEndId) is CoreResult.Success)
+        assertEquals(1, verPortalHits.get())
+        assertEquals(1, enterAvaHits.get())
+        assertEquals(2, avaPostHits.get())
+
+        // 4. Cardapio estruturado nao consulta wp/v2/media e tabela de precos respeita force = false
+        pdfExtractor.ruPagesResult = CoreResult.Success(listOf(buildSyntheticRuMenuPage()))
+        assertTrue(core.ru.refreshCardapio(CampusRu.DARCY_RIBEIRO, force = false) is CoreResult.Success)
+        assertEquals(0, mediaHits.get())
+
+        assertTrue(core.ru.refreshTabelaPrecos(force = false) is CoreResult.Success)
+        assertTrue(core.ru.refreshTabelaPrecos(force = false) is CoreResult.Success)
+        assertEquals(1, precosHits.get())
+        assertTrue(core.ru.refreshTabelaPrecos(force = true) is CoreResult.Success)
+        assertEquals(2, precosHits.get())
+    }
+
     private fun buildSyntheticRuMenuPage(): PdfMenuPageData {
         val legend = Alergenico.entries.sortedBy { it.legendOrderIndex }.mapIndexed { idx, alg ->
             val buf = RgbImageBuffer(32, 32, ByteArray(32 * 32 * 3) { (alg.legendOrderIndex * 20).toByte() })

@@ -408,7 +408,7 @@ private fun UnbNavHost(
                 onToggleAllergen = ruViewModel::toggleAllergen,
                 onSetHideRestricted = ruViewModel::setHideRestricted,
                 onClearAllergens = ruViewModel::clearAllergens,
-                onRefreshMenu = { ruViewModel.refreshMenu(force = true) },
+                onRefreshMenu = { ruViewModel.refreshMenu(force = false) },
                 onRefreshExtras = { ruViewModel.refreshPricesAndNotices(force = true) },
                 onSetCampusSheetOpen = ruViewModel::setCampusSheetOpen,
                 onSetAllergenSheetOpen = ruViewModel::setAllergenSheetOpen,

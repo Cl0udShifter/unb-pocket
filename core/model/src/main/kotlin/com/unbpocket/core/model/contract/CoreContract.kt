@@ -183,6 +183,10 @@ interface UnbPocketCore {
 
     suspend fun syncPortalHome(includeSaldoRu: Boolean = true): CoreResult<PortalHomeSyncSummary>
 
+    suspend fun refreshDiscentePerfilESaldo(
+        forceDownloadFoto: Boolean = false,
+    ): CoreResult<DiscenteResumo>
+
     fun startBackgroundPreload(includeTurmaDetails: Boolean = true)
 
     suspend fun silentRefreshAll(includeTurmaDetails: Boolean = true): CoreResult<PortalHomeSyncSummary>

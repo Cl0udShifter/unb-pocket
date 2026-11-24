@@ -114,7 +114,7 @@ class AuthViewModel(
             formState.update { it.copy(hasSavedCredentials = saved) }
             if (!saved) return@launch
 
-            when (val result = core.silentRefreshAll(includeTurmaDetails = true)) {
+            when (val result = core.silentRefreshAll(includeTurmaDetails = false)) {
                 is CoreResult.Success -> {
                     formState.update {
                         it.copy(

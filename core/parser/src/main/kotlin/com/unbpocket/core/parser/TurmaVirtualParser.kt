@@ -691,6 +691,12 @@ object TurmaVirtualParser {
             .orEmpty()
     }
 
+    fun parseAvaMenuActions(html: String): Map<String, Map<String, String>> {
+        val doc = Jsoup.parse(html)
+        val viewState = CasAndJsfParser.extractViewState(doc).orEmpty()
+        return parseFormMenuActions(doc, viewState)
+    }
+
     private fun parseFormMenuActions(doc: Document, viewState: String): Map<String, Map<String, String>> {
         val form = doc.selectFirst("form#formMenu") ?: return emptyMap()
         val formId = form.attr("id").ifBlank { "formMenu" }

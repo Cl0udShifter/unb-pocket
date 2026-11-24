@@ -244,7 +244,9 @@ class TurmasViewModel(
         }
     }
 
-    fun refreshSemestre(enriquecerViaAtestado: Boolean = true) {
+    fun refreshSemestre(
+        enriquecerViaAtestado: Boolean = listControl.value.selectedListTab != TurmasListTab.ATUALIZACOES,
+    ) {
         if (listControl.value.isRefreshingList) return
         viewModelScope.launch {
             listControl.update { it.copy(isRefreshingList = true, listError = null) }

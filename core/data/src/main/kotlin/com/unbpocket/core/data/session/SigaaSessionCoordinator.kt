@@ -275,8 +275,11 @@ class SigaaNavigator internal constructor(
         return checkPayloadNotExpired(payload)
     }
 
-    suspend fun postMenuDiscenteAction(jscookAction: String): CoreResult<HttpPayload> {
-        val homeHtml = when (val home = getPortalHomeHtml()) {
+    suspend fun postMenuDiscenteAction(
+        jscookAction: String,
+        existingHomeHtml: String? = null,
+    ): CoreResult<HttpPayload> {
+        val homeHtml = existingHomeHtml ?: when (val home = getPortalHomeHtml()) {
             is CoreResult.Failure -> return home
             is CoreResult.Success -> home.value
         }

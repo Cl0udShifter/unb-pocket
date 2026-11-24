@@ -168,6 +168,8 @@ interface UnbPocketCore {
 
     suspend fun syncPortalHome(includeSaldoRu: Boolean = true): CoreResult<PortalHomeSyncSummary>
 
+    suspend fun refreshDiscentePerfilESaldo(forceDownloadFoto: Boolean = false): CoreResult<DiscenteResumo>
+
     fun startBackgroundPreload(includeTurmaDetails: Boolean = true)
 
     suspend fun silentRefreshAll(includeTurmaDetails: Boolean = true): CoreResult<PortalHomeSyncSummary>
@@ -179,8 +181,9 @@ interface UnbPocketCore {
     suspend fun autoEnableSigaaNotificacoesIfEligible(): CoreResult<Boolean>
 }
 ```
-* `syncPortalHome` executa a Fase 1 da pre-carga usando `discente.jsf` (reutilizando o HTML capturado no login CAS quando valido, com fallback automatico para `verPortalDiscente.do` se o redirecionamento pos-CAS cair em tela intermediaria) + Atestado de Matricula + `#formExibirExtrato` opcional, atualizando `DiscenteResumo`, `TurmaResumo`, `AtualizacaoTurmaFeed` e `SaldoExtratoRu` no Room quando houver alteracao estrutural (`anyDataChanged`).
-* `startBackgroundPreload` inicia de forma nao-bloqueante a Fase 2 no escopo do Core (`CarteirinhaEstudantil`, `BoletimSemestre` e, para cada turma matriculada, detalhes AVA, frequencia, notas parciais, avaliacoes e tarefas), reportando progresso em `preloadProgress`. Em `logout`, a pre-carga ativa e cancelada imediatamente.
+* `syncPortalHome` executa a Fase 1 da pre-carga usando `discente.jsf` (reutilizando o HTML capturado no login CAS quando valido, com fallback automatico para `verPortalDiscente.do` se o redirecionamento pos-CAS cair em tela intermediaria) + Atestado de Matricula (apenas quando houver turmas ainda sem `codigoDisciplina`/`docenteNome` em cache) + `#formExibirExtrato` opcional, atualizando `DiscenteResumo`, `TurmaResumo`, `AtualizacaoTurmaFeed` e `SaldoExtratoRu` no Room quando houver alteracao estrutural (`anyDataChanged`).
+* `refreshDiscentePerfilESaldo` atualiza apenas os dados da tela Perfil Discente (`DiscenteResumo` + `SaldoExtratoRu`) em um unico lock JSF e uma unica chamada `verPortalDiscente.do`, reutilizando a foto de perfil em cache quando `forceDownloadFoto = false` e a URL nao mudou.
+* `startBackgroundPreload` inicia de forma nao-bloqueante a Fase 2 no escopo do Core (`CarteirinhaEstudantil`, `BoletimSemestre` e, quando `includeTurmaDetails = true`, detalhes AVA, frequencia, notas parciais, avaliacoes e tarefas reutilizando a sessao AVA ativa por turma), reportando progresso em `preloadProgress`. Em `logout`, a pre-carga ativa e cancelada imediatamente.
 * `silentRefreshAll` implementa o fluxo Stale-While-Revalidate na abertura do app com credenciais salvas: valida/renova a sessao (`ensureValidSession`), executa `syncPortalHome` e dispara `startBackgroundPreload`, avaliando diferencas de notificacoes (`RU_SALDO_BAIXO`, extrato, feed e mudancas pos-preload) quando os alertas estiverem habilitados. Alteracoes reais propagam via Room `Flow`; payloads identicos mantem o estado visual intacto sem sobrescrita nem banners transientes de falha.
 * `observeSigaaNotificacoesConfig` e `setSigaaNotificacoesConfig` leem e persistem preferencias locais de notificacoes de `Aulas & Turmas` e `Painel Discente` via DataStore (`sigaa_notifications`), populando o baseline inicial no Room sem disparos em lote na primeira ativacao (avaliando de imediato condicoes ativas como saldo RU baixo), sincronizando `AlarmManager` (lembretes de aula com 15/30/60 min e provas/tarefas na vespera as 20h e no dia as 07h ou 1h antes, com WorkManager de contingencia quando alarmes exatos estiverem bloqueados e tolerancia para atrasos de Doze) e `WorkManager` periodico (`2h`/`4h`/`6h`/`12h`, com opcao somente Wi-Fi, preservando a janela ativa com `KEEP` sempre que intervalo e rede nao mudarem).
 * `autoEnableSigaaNotificacoesIfEligible` ativa automaticamente o mestre SIGAA na autenticacao quando a permissao de notificacao ja estiver concedida e `userConfigured == false`, mantendo o usuario livre para desativar depois.

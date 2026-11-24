@@ -38,6 +38,7 @@ import com.unbpocket.core.model.contract.DiscenteRepository
 import com.unbpocket.core.model.contract.RuRepository
 import com.unbpocket.core.model.contract.TurmasRepository
 import com.unbpocket.core.model.contract.UnbPocketCore
+import com.unbpocket.core.model.discente.DiscenteResumo
 import com.unbpocket.core.model.notification.SigaaNotificacaoConfig
 import com.unbpocket.core.network.JsfPriority
 import com.unbpocket.core.network.UnbHttpTransport
@@ -338,6 +339,35 @@ private class DefaultUnbPocketCore(
             }
         }
         return result
+    }
+
+    override suspend fun refreshDiscentePerfilESaldo(
+        forceDownloadFoto: Boolean,
+    ): CoreResult<DiscenteResumo> = coordinator.withAuthenticatedJsf(priority = JsfPriority.INTERACTIVE) { nav ->
+        val homeHtml = when (val home = nav.getPortalHomeHtml()) {
+            is CoreResult.Failure -> return@withAuthenticatedJsf home
+            is CoreResult.Success -> home.value
+        }
+
+        val resumo = when (
+            val resumoRes = discenteRepo.persistResumoFromHomeHtmlWithDiff(
+                nav = nav,
+                homeHtml = homeHtml,
+                forceDownloadFoto = forceDownloadFoto,
+            )
+        ) {
+            is CoreResult.Failure -> return@withAuthenticatedJsf resumoRes
+            is CoreResult.Success -> resumoRes.value.first
+        }
+
+        when (val saldoRes = ruRepo.refreshSaldoExtratoWithDiff(nav, homeHtml)) {
+            is CoreResult.Failure -> {
+                if (saldoRes.error is CoreError.SessionExpired) return@withAuthenticatedJsf saldoRes
+            }
+            is CoreResult.Success -> Unit
+        }
+
+        CoreResult.Success(resumo)
     }
 
     override fun startBackgroundPreload(includeTurmaDetails: Boolean) {

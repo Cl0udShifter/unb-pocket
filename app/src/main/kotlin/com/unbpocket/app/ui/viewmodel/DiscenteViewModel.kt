@@ -168,10 +168,8 @@ class DiscenteViewModel(
         if (controlState.value.isRefreshingProfile) return
         viewModelScope.launch {
             controlState.update { it.copy(isRefreshingProfile = true, profileError = null) }
-            val profileRes = core.discente.refreshDiscenteResumo()
-            val saldoRes = core.ru.refreshSaldoExtrato()
-            val err = (profileRes as? CoreResult.Failure)?.error
-                ?: (saldoRes as? CoreResult.Failure)?.error
+            val res = core.refreshDiscentePerfilESaldo(forceDownloadFoto = false)
+            val err = (res as? CoreResult.Failure)?.error
             controlState.update {
                 it.copy(
                     isRefreshingProfile = false,
