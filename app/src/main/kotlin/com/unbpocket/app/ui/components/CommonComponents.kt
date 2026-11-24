@@ -64,8 +64,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -807,8 +809,6 @@ fun UnbPullToRefreshBox(
 ) {
     val colors = UnbTheme.colors
     val state = rememberPullToRefreshState()
-    val pullFraction = state.distanceFraction.coerceIn(0f, 1.35f)
-    val showIndicator = isRefreshing || pullFraction > 0.04f
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -816,13 +816,16 @@ fun UnbPullToRefreshBox(
         modifier = modifier,
         state = state,
         indicator = {
+            val showIndicator by remember(state, isRefreshing) {
+                derivedStateOf { isRefreshing || state.distanceFraction > 0.04f }
+            }
             if (showIndicator) {
-                val visualFraction = if (isRefreshing) 1f else pullFraction.coerceIn(0f, 1f)
                 Surface(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .padding(top = 10.dp)
                         .graphicsLayer {
+                            val visualFraction = if (isRefreshing) 1f else state.distanceFraction.coerceIn(0f, 1f)
                             alpha = visualFraction
                             translationY = if (isRefreshing) 0f else (visualFraction - 1f) * 18f
                         },
@@ -844,10 +847,15 @@ fun UnbPullToRefreshBox(
                         } else {
                             Box(
                                 modifier = Modifier
-                                    .width((16 + 22 * visualFraction).dp)
+                                    .width(38.dp)
                                     .height(6.dp)
+                                    .graphicsLayer {
+                                        val visualFraction = state.distanceFraction.coerceIn(0f, 1f)
+                                        scaleX = 0.42f + 0.58f * visualFraction
+                                        alpha = 0.55f + 0.3f * visualFraction
+                                    }
                                     .clip(CircleShape)
-                                    .background(colors.muted.copy(alpha = 0.55f + 0.3f * visualFraction)),
+                                    .background(colors.muted),
                             )
                         }
                     }
