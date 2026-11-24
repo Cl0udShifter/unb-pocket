@@ -194,12 +194,6 @@ fun RuScreen(
             },
             actions = {
                 HeaderActionIconButton(
-                    icon = Icons.Rounded.NotificationsNone,
-                    contentDescription = "Notificações do RU",
-                    buttonWidth = 40.dp,
-                    onClick = onOpenNotifications,
-                )
-                HeaderActionIconButton(
                     icon = Icons.Rounded.Newspaper,
                     contentDescription = "Avisos e preços do RU",
                     showDot = uiState.hasUnreadNoticias,
@@ -212,6 +206,12 @@ fun RuScreen(
                     showDot = uiState.preferencias.alergenicosRestritos.isNotEmpty(),
                     buttonWidth = 40.dp,
                     onClick = { onSetAllergenSheetOpen(true) },
+                )
+                HeaderActionIconButton(
+                    icon = Icons.Rounded.NotificationsNone,
+                    contentDescription = "Notificações do RU",
+                    buttonWidth = 40.dp,
+                    onClick = onOpenNotifications,
                 )
                 HeaderActionIconButton(
                     icon = if (authState is AuthState.Authenticated) {

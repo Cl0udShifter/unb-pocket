@@ -2,6 +2,7 @@ package com.unbpocket.app.ui.auth
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,17 +25,16 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
+import androidx.compose.material.icons.rounded.BrightnessAuto
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
-import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -44,6 +44,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -57,6 +58,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -300,17 +303,16 @@ fun LoginScreen(
 fun AccountQuickSheet(
     authUiState: AuthUiState,
     themeMode: ThemeMode,
-    onToggleTheme: () -> Unit,
+    onSelectThemeMode: (ThemeMode) -> Unit,
     onOpenLogin: () -> Unit,
-    onOpenDiscente: () -> Unit,
     onSyncAll: () -> Unit,
-    onOpenNotifications: () -> Unit,
     onLogout: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val colors = UnbTheme.colors
     val typography = UnbTheme.typography
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showLogoutDialog by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -385,16 +387,6 @@ fun AccountQuickSheet(
                     )
 
                     SheetActionRow(
-                        icon = Icons.Rounded.School,
-                        title = "Abrir Perfil Discente",
-                        subtitle = "IRA, saldo RU, QR da catraca e boletim",
-                        onClick = {
-                            onDismiss()
-                            onOpenDiscente()
-                        },
-                    )
-
-                    SheetActionRow(
                         icon = Icons.Rounded.Sync,
                         title = if (authUiState.isSyncingAll) "Sincronizando..." else "Sincronizar dados acadêmicos",
                         subtitle = "Turmas, avisos, perfil e saldo RU",
@@ -402,17 +394,6 @@ fun AccountQuickSheet(
                         onClick = {
                             onSyncAll()
                             onDismiss()
-                        },
-                    )
-
-                    SheetActionRow(
-                        icon = Icons.AutoMirrored.Rounded.Logout,
-                        title = "Desconectar conta",
-                        subtitle = "Remove credenciais e cache SIGAA",
-                        isDestructive = true,
-                        onClick = {
-                            onDismiss()
-                            onLogout()
                         },
                     )
                 }
@@ -486,32 +467,149 @@ fun AccountQuickSheet(
 
             HairlineDivider()
 
-            val nextThemeLabel = when (themeMode) {
-                ThemeMode.DARK -> "Tema escuro ativo (toque para claro)"
-                ThemeMode.LIGHT -> "Tema claro ativo (toque para escuro)"
-                ThemeMode.SYSTEM -> "Seguindo tema do sistema"
-            }
-            SheetActionRow(
-                icon = Icons.Rounded.NotificationsNone,
-                title = "Central de Notificações",
-                subtitle = if (authUiState.sigaaNotificacoes.hasAnyEnabled) {
-                    "Alertas de RU, Aulas & Turmas e Painel Discente"
-                } else {
-                    "Configurar alertas de cardápio, aulas, provas e notas"
-                },
-                onClick = {
-                    onDismiss()
-                    onOpenNotifications()
-                },
-            )
-            SheetActionRow(
-                icon = if (colors.isDark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-                title = "Aparência do aplicativo",
-                subtitle = nextThemeLabel,
-                onClick = onToggleTheme,
+            ThemeModeSelectorTile(
+                themeMode = themeMode,
+                onSelectThemeMode = onSelectThemeMode,
             )
 
+            if (authUiState.authState is AuthState.Authenticated) {
+                SheetActionRow(
+                    icon = Icons.AutoMirrored.Rounded.Logout,
+                    title = "Desconectar conta",
+                    subtitle = "Remove credenciais e cache SIGAA",
+                    isDestructive = true,
+                    onClick = { showLogoutDialog = true },
+                )
+            }
+
             Spacer(modifier = Modifier.height(UnbSpacing.sm))
+        }
+    }
+
+    if (showLogoutDialog) {
+        AlertDialog(
+            onDismissRequest = { showLogoutDialog = false },
+            containerColor = colors.surface,
+            titleContentColor = colors.ink,
+            textContentColor = colors.muted,
+            title = {
+                Text(
+                    text = "Desconectar conta SIGAA?",
+                    style = typography.titleStrong,
+                    color = colors.ink,
+                )
+            },
+            text = {
+                Text(
+                    text = "Suas credenciais salvas e o cache local do SIGAA serão removidos deste dispositivo.",
+                    style = typography.body,
+                    color = colors.muted,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showLogoutDialog = false
+                        onDismiss()
+                        onLogout()
+                    },
+                ) {
+                    Text(
+                        text = "Desconectar",
+                        style = typography.title,
+                        color = colors.dangerText,
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showLogoutDialog = false }) {
+                    Text(
+                        text = "Cancelar",
+                        style = typography.title,
+                        color = colors.ink,
+                    )
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ThemeModeSelectorTile(
+    themeMode: ThemeMode,
+    onSelectThemeMode: (ThemeMode) -> Unit,
+) {
+    val colors = UnbTheme.colors
+    val typography = UnbTheme.typography
+    val options = remember {
+        listOf(
+            Triple(ThemeMode.SYSTEM, "Sistema", Icons.Rounded.BrightnessAuto),
+            Triple(ThemeMode.LIGHT, "Claro", Icons.Rounded.LightMode),
+            Triple(ThemeMode.DARK, "Escuro", Icons.Rounded.DarkMode),
+        )
+    }
+
+    InnerTile(
+        modifier = Modifier.fillMaxWidth(),
+        contentPadding = PaddingValues(horizontal = UnbSpacing.md, vertical = 14.dp),
+    ) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(UnbSpacing.md),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    text = "Aparência",
+                    style = typography.title,
+                    color = colors.ink,
+                )
+                Text(
+                    text = "Escolha o tema visual do aplicativo",
+                    style = typography.label,
+                    color = colors.muted,
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(UnbShapes.capsule)
+                    .background(colors.ground)
+                    .border(width = 1.dp, color = colors.border, shape = UnbShapes.capsule)
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                options.forEach { (mode, label, icon) ->
+                    val isSelected = themeMode == mode
+                    Row(
+                        modifier = Modifier
+                            .weight(1f)
+                            .defaultMinSize(minHeight = 40.dp)
+                            .clip(UnbShapes.capsule)
+                            .background(if (isSelected) colors.pillActiveBg else colors.ground)
+                            .semantics { selected = isSelected }
+                            .clickable(role = Role.Tab) { onSelectThemeMode(mode) }
+                            .padding(horizontal = UnbSpacing.sm, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = if (isSelected) colors.pillActiveInk else colors.muted,
+                            modifier = Modifier.size(16.dp),
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = label,
+                            style = typography.label,
+                            color = if (isSelected) colors.pillActiveInk else colors.muted,
+                            maxLines = 1,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -539,37 +637,26 @@ private fun SheetActionRow(
                 .fillMaxWidth()
                 .defaultMinSize(minHeight = 32.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+            horizontalArrangement = Arrangement.spacedBy(UnbSpacing.md),
         ) {
-            Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(UnbSpacing.md),
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = tint,
-                    modifier = Modifier.size(20.dp),
-                )
-                Column {
-                    Text(
-                        text = title,
-                        style = typography.title,
-                        color = tint,
-                    )
-                    Text(
-                        text = subtitle,
-                        style = typography.label,
-                        color = colors.muted,
-                    )
-                }
-            }
             Icon(
-                imageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+                imageVector = icon,
                 contentDescription = null,
-                tint = colors.muted,
+                tint = tint,
+                modifier = Modifier.size(20.dp),
             )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = typography.title,
+                    color = tint,
+                )
+                Text(
+                    text = subtitle,
+                    style = typography.label,
+                    color = colors.muted,
+                )
+            }
         }
     }
 }

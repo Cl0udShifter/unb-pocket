@@ -5,7 +5,6 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,16 +35,9 @@ class MainActivity : ComponentActivity() {
         val themeStore = ThemePreferenceStore(applicationContext)
 
         setContent {
-            val systemDark = isSystemInDarkTheme()
             var themeMode by remember { mutableStateOf(themeStore.load()) }
 
-            val toggleTheme = {
-                val currentlyDark = when (themeMode) {
-                    ThemeMode.DARK -> true
-                    ThemeMode.LIGHT -> false
-                    ThemeMode.SYSTEM -> systemDark
-                }
-                val nextMode = if (currentlyDark) ThemeMode.LIGHT else ThemeMode.DARK
+            val selectThemeMode: (ThemeMode) -> Unit = { nextMode ->
                 themeMode = nextMode
                 themeStore.save(nextMode)
             }
@@ -54,7 +46,7 @@ class MainActivity : ComponentActivity() {
                 UnbPocketApp(
                     core = core,
                     themeMode = themeMode,
-                    onToggleTheme = toggleTheme,
+                    onSelectThemeMode = selectThemeMode,
                     pendingRuDeepLink = pendingRuDeepLink,
                     onConsumeRuDeepLink = { pendingRuDeepLink = null },
                     pendingSigaaDeepLink = pendingSigaaDeepLink,

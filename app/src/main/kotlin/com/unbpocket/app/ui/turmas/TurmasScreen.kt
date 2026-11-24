@@ -35,7 +35,6 @@ import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NotificationsNone
 import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material.icons.rounded.PersonOutline
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material3.Button
@@ -144,21 +143,17 @@ fun TurmasScreen(
                     contentDescription = "Notificações de Turmas",
                     onClick = onOpenNotifications,
                 )
-                if (uiState.authState is AuthState.Authenticated || isEssentialSyncing) {
-                    HeaderActionIconButton(
-                        icon = Icons.Rounded.Refresh,
-                        contentDescription = "Atualizar turmas",
-                        isLoading = uiState.isRefreshingList || isEssentialSyncing,
-                        onClick = onRefresh,
-                    )
-                }
                 HeaderActionIconButton(
                     icon = if (uiState.authState is AuthState.Authenticated) {
                         Icons.Rounded.Person
                     } else {
                         Icons.Rounded.PersonOutline
                     },
-                    contentDescription = "Conta UnB",
+                    contentDescription = if (uiState.authState is AuthState.Authenticated) {
+                        "Conta UnB conectada"
+                    } else {
+                        "Entrar na conta UnB"
+                    },
                     onClick = onOpenAccountSheet,
                 )
             },

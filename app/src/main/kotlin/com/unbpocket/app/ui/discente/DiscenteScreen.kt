@@ -24,13 +24,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.automirrored.rounded.Logout
-import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Description
-import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.NotificationsNone
+import androidx.compose.material.icons.rounded.Person
+import androidx.compose.material.icons.rounded.PersonOutline
 import androidx.compose.material.icons.rounded.QrCode2
-import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.AlertDialog
@@ -89,13 +88,13 @@ fun DiscenteScreen(
     uiState: DiscenteUiState,
     authUiState: AuthUiState,
     bottomContentPadding: Dp,
-    onToggleTheme: () -> Unit,
     onToggleQrCardFace: () -> Unit,
     onRefreshProfile: () -> Unit,
     onSyncAll: () -> Unit,
     onOpenBoletim: () -> Unit,
     onOpenDocumentos: () -> Unit,
     onOpenLogin: () -> Unit,
+    onOpenAccountSheet: () -> Unit,
     onOpenNotifications: () -> Unit,
     onLogout: () -> Unit,
     onDismissProfileError: () -> Unit,
@@ -154,18 +153,18 @@ fun DiscenteScreen(
                     onClick = onOpenNotifications,
                 )
                 HeaderActionIconButton(
-                    icon = if (colors.isDark) Icons.Rounded.LightMode else Icons.Rounded.DarkMode,
-                    contentDescription = if (colors.isDark) "Mudar para tema claro" else "Mudar para tema escuro",
-                    onClick = onToggleTheme,
+                    icon = if (uiState.authState is AuthState.Authenticated) {
+                        Icons.Rounded.Person
+                    } else {
+                        Icons.Rounded.PersonOutline
+                    },
+                    contentDescription = if (uiState.authState is AuthState.Authenticated) {
+                        "Conta UnB conectada"
+                    } else {
+                        "Entrar na conta UnB"
+                    },
+                    onClick = onOpenAccountSheet,
                 )
-                if (hasDataOrAuth) {
-                    HeaderActionIconButton(
-                        icon = Icons.Rounded.Refresh,
-                        contentDescription = "Atualizar perfil",
-                        isLoading = uiState.isRefreshingProfile || isEssentialSyncing,
-                        onClick = onRefreshProfile,
-                    )
-                }
             },
         )
 

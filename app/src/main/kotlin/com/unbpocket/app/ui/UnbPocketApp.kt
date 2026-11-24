@@ -88,7 +88,7 @@ private object AppRoutes {
 fun UnbPocketApp(
     core: UnbPocketCore,
     themeMode: ThemeMode,
-    onToggleTheme: () -> Unit,
+    onSelectThemeMode: (ThemeMode) -> Unit,
     modifier: Modifier = Modifier,
     pendingRuDeepLink: RuDeepLinkTarget? = null,
     onConsumeRuDeepLink: () -> Unit = {},
@@ -201,7 +201,6 @@ fun UnbPocketApp(
             ruViewModel = ruViewModel,
             turmasViewModel = turmasViewModel,
             discenteViewModel = discenteViewModel,
-            onToggleTheme = onToggleTheme,
             onOpenLogin = navigateToLogin,
             onOpenAccountSheet = { showAccountSheet = true },
             onOpenNotificationCenter = openNotificationCenter,
@@ -303,12 +302,13 @@ fun UnbPocketApp(
         AccountQuickSheet(
             authUiState = authUiState,
             themeMode = themeMode,
-            onToggleTheme = onToggleTheme,
+            onSelectThemeMode = onSelectThemeMode,
             onOpenLogin = navigateToLogin,
-            onOpenDiscente = { navigateToTopDestination(TopDestination.DISCENTE) },
             onSyncAll = { authViewModel.syncAll() },
-            onOpenNotifications = { openNotificationCenter(null) },
-            onLogout = { authViewModel.logout(clearCachedData = true) },
+            onLogout = {
+                discenteViewModel.resetQrCardToBalance()
+                authViewModel.logout(clearCachedData = true)
+            },
             onDismiss = { showAccountSheet = false },
         )
     }
@@ -362,7 +362,6 @@ private fun UnbNavHost(
     ruViewModel: RuViewModel,
     turmasViewModel: TurmasViewModel,
     discenteViewModel: DiscenteViewModel,
-    onToggleTheme: () -> Unit,
     onOpenLogin: () -> Unit,
     onOpenAccountSheet: () -> Unit,
     onOpenNotificationCenter: (NotificationCenterSection?) -> Unit,
@@ -482,13 +481,13 @@ private fun UnbNavHost(
                 uiState = discenteUiState,
                 authUiState = authUiState,
                 bottomContentPadding = bottomContentPadding,
-                onToggleTheme = onToggleTheme,
                 onToggleQrCardFace = discenteViewModel::toggleQrCardFace,
                 onRefreshProfile = discenteViewModel::refreshProfileAndSaldo,
                 onSyncAll = authViewModel::syncAll,
                 onOpenBoletim = { navController.navigate(AppRoutes.BOLETIM) },
                 onOpenDocumentos = { navController.navigate(AppRoutes.DOCUMENTOS) },
                 onOpenLogin = onOpenLogin,
+                onOpenAccountSheet = onOpenAccountSheet,
                 onOpenNotifications = { onOpenNotificationCenter(NotificationCenterSection.DISCENTE) },
                 onLogout = {
                     discenteViewModel.resetQrCardToBalance()
