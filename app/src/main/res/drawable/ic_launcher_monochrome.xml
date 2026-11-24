@@ -4,15 +4,19 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <!-- Back card -->
     <path
+        android:fillAlpha="0.45"
         android:fillColor="#FFFFFF"
-        android:pathData="M29,29L47,29L47,51L29,51Z" />
+        android:pathData="M37,28 L71,28 Q77,28 77,34 L77,42 L31,42 L31,34 Q31,28 37,28 Z" />
+    <!-- Middle card -->
     <path
-        android:fillAlpha="0.65"
+        android:fillAlpha="0.72"
+        android:fillColor="#FFFFFF"
+        android:pathData="M35,36 L73,36 Q79,36 79,42 L79,46 L29,46 L29,42 Q29,36 35,36 Z" />
+    <!-- Front pocket with subtle cutout -->
+    <path
         android:fillColor="#FFFFFF"
         android:fillType="evenOdd"
-        android:pathData="M61,29L79,29L79,51L61,51ZM74.5,40A4.5,4.5 0 1,0 65.5,40A4.5,4.5 0 1,0 74.5,40Z" />
-    <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M29,53L47,53C47,58.2 49.8,61.5 54,61.5C58.2,61.5 61,58.2 61,53L79,53L79,55C79,69.5 68.2,79 54,79C39.8,79 29,69.5 29,55Z" />
+        android:pathData="M27,50 Q27,44 33,44 L44,44 C46,48.5 49.5,51 54,51 C58.5,51 62,48.5 64,44 L75,44 Q81,44 81,50 L81,71 Q81,79 73,79 L35,79 Q27,79 27,71 Z M64,59.5 L70,59.5 Q71,59.5 71,60.5 L71,66.5 Q71,67.5 70,67.5 L64,67.5 Q63,67.5 63,66.5 L63,60.5 Q63,59.5 64,59.5 Z" />
 </vector>

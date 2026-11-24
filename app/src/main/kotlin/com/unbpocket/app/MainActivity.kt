@@ -5,11 +5,16 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import com.unbpocket.app.ui.UnbPocketApp
+import com.unbpocket.app.ui.components.PortalZoomSplashOverlay
 import com.unbpocket.app.ui.theme.ThemeMode
 import com.unbpocket.app.ui.theme.ThemePreferenceStore
 import com.unbpocket.app.ui.theme.UnbPocketTheme
@@ -36,6 +41,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             var themeMode by remember { mutableStateOf(themeStore.load()) }
+            var showSplash by rememberSaveable { mutableStateOf(true) }
 
             val selectThemeMode: (ThemeMode) -> Unit = { nextMode ->
                 themeMode = nextMode
@@ -43,15 +49,22 @@ class MainActivity : ComponentActivity() {
             }
 
             UnbPocketTheme(themeMode = themeMode) {
-                UnbPocketApp(
-                    core = core,
-                    themeMode = themeMode,
-                    onSelectThemeMode = selectThemeMode,
-                    pendingRuDeepLink = pendingRuDeepLink,
-                    onConsumeRuDeepLink = { pendingRuDeepLink = null },
-                    pendingSigaaDeepLink = pendingSigaaDeepLink,
-                    onConsumeSigaaDeepLink = { pendingSigaaDeepLink = null },
-                )
+                Box(modifier = Modifier.fillMaxSize()) {
+                    UnbPocketApp(
+                        core = core,
+                        themeMode = themeMode,
+                        onSelectThemeMode = selectThemeMode,
+                        pendingRuDeepLink = pendingRuDeepLink,
+                        onConsumeRuDeepLink = { pendingRuDeepLink = null },
+                        pendingSigaaDeepLink = pendingSigaaDeepLink,
+                        onConsumeSigaaDeepLink = { pendingSigaaDeepLink = null },
+                    )
+                    if (showSplash) {
+                        PortalZoomSplashOverlay(
+                            onFinished = { showSplash = false },
+                        )
+                    }
+                }
             }
         }
     }
