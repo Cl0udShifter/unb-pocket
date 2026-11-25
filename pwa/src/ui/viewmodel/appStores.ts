@@ -835,6 +835,7 @@ export interface TurmaVirtualUiState {
   readonly loadingNoticiaIds: ReadonlySet<string>;
   readonly downloadingItemId: string | null;
   readonly downloadedFileEvent: ArquivoBaixado | null;
+  readonly downloadedFilesByItemId: Readonly<Record<string, ArquivoBaixado>>;
   readonly isResolvingCache: boolean;
   readonly isRefreshingDetail: boolean;
   readonly isLoadingDetail: boolean;
@@ -861,6 +862,7 @@ export class TurmasStore {
   private loadingNoticiaIds = new Set<string>();
   private downloadingItemId: string | null = null;
   private downloadedFileEvent: ArquivoBaixado | null = null;
+  private downloadedFilesByItemId: Record<string, ArquivoBaixado> = {};
   private isResolvingCache = false;
   private isRefreshingDetail = false;
   private detailError: UiErrorBanner | null = null;
@@ -958,6 +960,7 @@ export class TurmasStore {
       loadingNoticiaIds: new Set(this.loadingNoticiaIds),
       downloadingItemId: this.downloadingItemId,
       downloadedFileEvent: this.downloadedFileEvent,
+      downloadedFilesByItemId: this.downloadedFilesByItemId,
       isResolvingCache: this.isResolvingCache,
       isRefreshingDetail: this.isRefreshingDetail,
       isLoadingDetail: this.isRefreshingDetail || this.isResolvingCache,
@@ -1030,6 +1033,7 @@ export class TurmasStore {
     this.loadingNoticiaIds = new Set();
     this.downloadingItemId = null;
     this.downloadedFileEvent = null;
+    this.downloadedFilesByItemId = {};
     this.detailError = null;
     this.isResolvingCache = true;
     this.isRefreshingDetail = false;
@@ -1061,6 +1065,7 @@ export class TurmasStore {
     this.loadingNoticiaIds = new Set();
     this.downloadingItemId = null;
     this.downloadedFileEvent = null;
+    this.downloadedFilesByItemId = {};
     this.isResolvingCache = false;
     this.isRefreshingDetail = false;
     this.detailError = null;
@@ -1230,6 +1235,10 @@ export class TurmasStore {
     this.downloadingItemId = null;
     if (res.ok) {
       this.downloadedFileEvent = res.value;
+      this.downloadedFilesByItemId = {
+        ...this.downloadedFilesByItemId,
+        [materialId]: res.value,
+      };
     } else {
       this.detailError = CoreErrorMapper.toUiError(res.error);
     }
@@ -1248,6 +1257,10 @@ export class TurmasStore {
     this.downloadingItemId = null;
     if (res.ok) {
       this.downloadedFileEvent = res.value;
+      this.downloadedFilesByItemId = {
+        ...this.downloadedFilesByItemId,
+        [anexoId]: res.value,
+      };
     } else {
       this.detailError = CoreErrorMapper.toUiError(res.error);
     }

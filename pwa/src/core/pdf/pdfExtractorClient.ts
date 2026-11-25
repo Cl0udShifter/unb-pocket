@@ -34,16 +34,10 @@ export class WorkerPdfExtractor implements PdfExtractor {
         }
       };
       w.onerror = () => {
+        this.worker = null;
         for (const [id, resolver] of this.pending.entries()) {
           this.pending.delete(id);
-          resolver({
-            ok: false,
-            error: {
-              kind: 'PdfExtractionError',
-              documentType: 'PDF',
-              reason: 'Falha na execucao do Web Worker de PDF.',
-            },
-          });
+          resolver(null);
         }
       };
       this.worker = w;
@@ -62,9 +56,29 @@ export class WorkerPdfExtractor implements PdfExtractor {
     if (!w) return null;
     const id = this.nextRequestId++;
     const copy = new Uint8Array(pdfBytes);
-    return new Promise<CoreResult<T>>((resolve) => {
-      this.pending.set(id, (res) => resolve(res as CoreResult<T>));
-      w.postMessage({ id, op, pdfBytes: copy, documentType }, [copy.buffer]);
+    return new Promise<CoreResult<T> | null>((resolve) => {
+      const timer = setTimeout(() => {
+        if (this.pending.has(id)) {
+          this.pending.delete(id);
+          resolve(null);
+        }
+      }, 15_000);
+      this.pending.set(id, (res) => {
+        clearTimeout(timer);
+        const typed = res as CoreResult<T> | null;
+        if (!typed || (!typed.ok && typed.error.kind === 'PdfExtractionError')) {
+          resolve(null);
+          return;
+        }
+        resolve(typed);
+      });
+      try {
+        w.postMessage({ id, op, pdfBytes: copy, documentType }, [copy.buffer]);
+      } catch {
+        clearTimeout(timer);
+        this.pending.delete(id);
+        resolve(null);
+      }
     });
   }
 

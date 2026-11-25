@@ -1,8 +1,8 @@
-import { Download, Minus, Plus, Share2, X } from 'lucide-react';
+import { Download, ExternalLink, Minus, Plus, Share2, X } from 'lucide-react';
 import React, { useEffect, useRef, useState } from 'react';
 import type { UnbPocketCore } from '../../core/model/models';
-import { ModalDialogSheet } from './ModalDialogSheet';
 import { ErrorBanner, SkeletonBox } from './CommonComponents';
+import { ModalDialogSheet } from './ModalDialogSheet';
 import { SafeHtmlContent } from './SafeHtmlContent';
 
 export interface ViewableDocumentRequest {
@@ -19,6 +19,89 @@ interface InAppDocumentViewerModalProps {
   readonly onClose: () => void;
 }
 
+type DetectedDocKind = 'pdf' | 'html' | 'image' | 'text' | 'external';
+
+function inferMimeFromNameAndBytes(
+  fileName: string,
+  declaredMime: string,
+  bytes: Uint8Array,
+): { kind: DetectedDocKind; mime: string } {
+  // 1. Magic-byte signatures always take precedence over generic SIGAA headers
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
+  ) {
+    return { kind: 'pdf', mime: 'application/pdf' };
+  }
+  if (
+    bytes.length >= 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return { kind: 'image', mime: 'image/png' };
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return { kind: 'image', mime: 'image/jpeg' };
+  }
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x38
+  ) {
+    return { kind: 'image', mime: 'image/gif' };
+  }
+
+  const lowerMime = declaredMime.split(';')[0].trim().toLowerCase();
+  const lowerName = fileName.trim().toLowerCase();
+  const ext = lowerName.includes('.') ? lowerName.split('.').pop() ?? '' : '';
+
+  if (lowerMime.includes('pdf') || ext === 'pdf') {
+    return { kind: 'pdf', mime: 'application/pdf' };
+  }
+  if (lowerMime.startsWith('image/') || ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'].includes(ext)) {
+    return { kind: 'image', mime: lowerMime.startsWith('image/') ? lowerMime : `image/${ext === 'jpg' ? 'jpeg' : ext}` };
+  }
+  if (lowerMime.includes('html') || ext === 'html' || ext === 'htm') {
+    return { kind: 'html', mime: 'text/html' };
+  }
+  if (
+    lowerMime.startsWith('text/') ||
+    lowerMime === 'application/json' ||
+    ['txt', 'csv', 'md', 'json', 'xml', 'py', 'c', 'cpp', 'h', 'java', 'kt', 'js', 'ts', 'sql', 'log'].includes(
+      ext,
+    )
+  ) {
+    return { kind: 'text', mime: lowerMime || 'text/plain' };
+  }
+
+  // Sniff leading ASCII/UTF-8 text if small enough and free of NUL bytes
+  if (bytes.length > 0 && bytes.length <= 512 * 1024) {
+    const sampleLen = Math.min(bytes.length, 512);
+    let hasNullByte = false;
+    for (let i = 0; i < sampleLen; i += 1) {
+      if (bytes[i] === 0) {
+        hasNullByte = true;
+        break;
+      }
+    }
+    if (!hasNullByte) {
+      const sampleText = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, sampleLen)).trimStart().toLowerCase();
+      if (sampleText.startsWith('<!doctype html') || sampleText.startsWith('<html')) {
+        return { kind: 'html', mime: 'text/html' };
+      }
+    }
+  }
+
+  return { kind: 'external', mime: lowerMime || 'application/octet-stream' };
+}
+
 export async function shareOrDownloadCachedFile(
   core: UnbPocketCore,
   doc: ViewableDocumentRequest,
@@ -27,17 +110,20 @@ export async function shareOrDownloadCachedFile(
   const blob = await core.readCachedBlob(doc.localFilePath);
   if (!blob) return false;
 
-  const cleanMime = doc.mimeType.split(';')[0].trim() || blob.type || 'application/octet-stream';
-  const ext = cleanMime.includes('pdf')
-    ? '.pdf'
-    : cleanMime.includes('html')
-      ? '.html'
-      : '';
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const detected = inferMimeFromNameAndBytes(doc.fileName, doc.mimeType || blob.type, bytes);
+  const ext =
+    detected.kind === 'pdf'
+      ? '.pdf'
+      : detected.kind === 'html'
+        ? '.html'
+        : '';
   const safeFileName = doc.fileName.includes('.') ? doc.fileName : `${doc.fileName}${ext}`;
+  const typedBlob = new Blob([bytes], { type: detected.mime });
 
   if (preferShare && typeof navigator !== 'undefined' && typeof navigator.share === 'function') {
     try {
-      const file = new File([blob], safeFileName, { type: cleanMime });
+      const file = new File([typedBlob], safeFileName, { type: detected.mime });
       if (!navigator.canShare || navigator.canShare({ files: [file] })) {
         await navigator.share({
           title: doc.title,
@@ -52,7 +138,7 @@ export async function shareOrDownloadCachedFile(
     }
   }
 
-  const objectUrl = URL.createObjectURL(blob);
+  const objectUrl = URL.createObjectURL(typedBlob);
   const a = document.createElement('a');
   a.href = objectUrl;
   a.download = safeFileName;
@@ -69,31 +155,26 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
   core,
   onClose,
 }) => {
-  const [blob, setBlob] = useState<Blob | null>(null);
+  const [pdfBytes, setPdfBytes] = useState<Uint8Array | null>(null);
+  const [docKind, setDocKind] = useState<DetectedDocKind | null>(null);
+  const [resolvedMime, setResolvedMime] = useState<string>('');
   const [htmlText, setHtmlText] = useState<string | null>(null);
+  const [plainText, setPlainText] = useState<string | null>(null);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [zoom, setZoom] = useState(1);
   const [pageCount, setPageCount] = useState(0);
   const pdfCanvasHostRef = useRef<HTMLDivElement | null>(null);
 
-  const isPdf = Boolean(
-    doc &&
-      (doc.mimeType.toLowerCase().includes('pdf') ||
-        doc.fileName.toLowerCase().endsWith('.pdf')),
-  );
-  const isHtml = Boolean(
-    doc &&
-      !isPdf &&
-      (doc.mimeType.toLowerCase().includes('html') ||
-        doc.fileName.toLowerCase().endsWith('.html')),
-  );
-  const isImage = Boolean(doc && doc.mimeType.toLowerCase().startsWith('image/'));
-
   useEffect(() => {
     if (!doc) {
-      setBlob(null);
+      setPdfBytes(null);
+      setDocKind(null);
+      setResolvedMime('');
       setHtmlText(null);
+      setPlainText(null);
+      setImageUrl(null);
       setErrorMsg(null);
       setZoom(1);
       setPageCount(0);
@@ -101,9 +182,14 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
     }
 
     let cancelled = false;
+    let activeImgUrl: string | null = null;
     setLoading(true);
     setErrorMsg(null);
+    setPdfBytes(null);
+    setDocKind(null);
     setHtmlText(null);
+    setPlainText(null);
+    setImageUrl(null);
     setPageCount(0);
 
     void core.readCachedBlob(doc.localFilePath).then(async (loaded) => {
@@ -113,40 +199,74 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
         setLoading(false);
         return;
       }
-      setBlob(loaded);
-      if (isHtml) {
-        const text = await loaded.text();
-        if (!cancelled) {
-          const parsed = new DOMParser().parseFromString(text, 'text/html');
-          setHtmlText(parsed.body ? parsed.body.innerHTML : text);
-          setLoading(false);
-        }
-      } else if (!isPdf) {
-        setLoading(false);
+
+      const rawBytes = new Uint8Array(await loaded.arrayBuffer());
+      if (cancelled) return;
+
+      const detected = inferMimeFromNameAndBytes(doc.fileName, doc.mimeType, rawBytes);
+      setDocKind(detected.kind);
+      setResolvedMime(detected.mime);
+
+      if (detected.kind === 'pdf') {
+        setPdfBytes(rawBytes);
+        return;
       }
+
+      if (detected.kind === 'html') {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(rawBytes);
+        const parsed = new DOMParser().parseFromString(text, 'text/html');
+        setHtmlText(parsed.body ? parsed.body.innerHTML : text);
+        setLoading(false);
+        return;
+      }
+
+      if (detected.kind === 'text') {
+        const text = new TextDecoder('utf-8', { fatal: false }).decode(rawBytes);
+        setPlainText(text);
+        setLoading(false);
+        return;
+      }
+
+      if (detected.kind === 'image') {
+        const imgBlob = new Blob([rawBytes], { type: detected.mime });
+        activeImgUrl = URL.createObjectURL(imgBlob);
+        setImageUrl(activeImgUrl);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(false);
     });
 
     return () => {
       cancelled = true;
+      if (activeImgUrl) {
+        URL.revokeObjectURL(activeImgUrl);
+      }
     };
-  }, [doc, core, isHtml, isPdf]);
+  }, [doc, core]);
 
   useEffect(() => {
-    if (!doc || !blob || !isPdf) return;
+    if (!doc || docKind !== 'pdf' || !pdfBytes) return;
     const host = pdfCanvasHostRef.current;
     if (!host) return;
 
     let cancelled = false;
     setLoading(true);
+    setErrorMsg(null);
 
     void (async () => {
       try {
-        const pdfjs = await import('pdfjs-dist');
-        const workerUrlMod = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
-        pdfjs.GlobalWorkerOptions.workerSrc = workerUrlMod.default;
+        const [pdfjs, pdfjsWorker] = await Promise.all([
+          import('pdfjs-dist'),
+          import('pdfjs-dist/build/pdf.worker.min.mjs'),
+        ]);
+        (globalThis as unknown as { pdfjsWorker?: unknown }).pdfjsWorker = pdfjsWorker;
 
-        const bytes = new Uint8Array(await blob.arrayBuffer());
-        const loadingTask = pdfjs.getDocument({ data: bytes });
+        const loadingTask = pdfjs.getDocument({
+          data: new Uint8Array(pdfBytes),
+          isEvalSupported: false,
+        });
         const pdfDoc = await loadingTask.promise;
         if (cancelled) {
           await pdfDoc.destroy();
@@ -156,7 +276,7 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
         setPageCount(pdfDoc.numPages);
         host.replaceChildren();
 
-        const containerWidth = Math.max(280, Math.min(host.clientWidth - 24, 780));
+        const containerWidth = Math.max(280, Math.min((host.clientWidth || window.innerWidth) - 24, 780));
         const dpr = Math.min(window.devicePixelRatio || 1, 2.5);
 
         for (let pageNum = 1; pageNum <= pdfDoc.numPages; pageNum += 1) {
@@ -202,21 +322,15 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
     return () => {
       cancelled = true;
     };
-  }, [doc, blob, isPdf, zoom]);
-
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  useEffect(() => {
-    if (!blob || !isImage) {
-      setImageUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(blob);
-    setImageUrl(url);
-    return () => URL.revokeObjectURL(url);
-  }, [blob, isImage]);
+  }, [doc, docKind, pdfBytes, zoom]);
 
   if (!doc) return null;
 
+  const isPdf = docKind === 'pdf';
+  const isHtml = docKind === 'html';
+  const isImage = docKind === 'image';
+  const isText = docKind === 'text';
+  const isExternal = docKind === 'external';
   const canShare = typeof navigator !== 'undefined' && typeof navigator.share === 'function';
 
   return (
@@ -324,7 +438,7 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
           minHeight: 0,
           overflow: 'auto',
           WebkitOverflowScrolling: 'touch',
-          padding: isHtml ? '0' : '16px 12px calc(24px + var(--safe-bottom))',
+          padding: isHtml ? '12px' : '16px 12px calc(24px + var(--safe-bottom))',
           display: 'flex',
           flexDirection: 'column',
           gap: '12px',
@@ -363,6 +477,19 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
           <SafeHtmlContent html={htmlText} className="document-html-paper" />
         )}
 
+        {isText && plainText !== null && (
+          <pre
+            className="document-html-paper ty-mono"
+            style={{
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              margin: '0 auto',
+            }}
+          >
+            {plainText}
+          </pre>
+        )}
+
         {isImage && imageUrl && (
           <img
             src={imageUrl}
@@ -376,14 +503,15 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
           />
         )}
 
-        {!isPdf && !isHtml && !isImage && !loading && blob && (
+        {isExternal && !loading && (
           <div className="editorial-card" style={{ maxWidth: '460px', margin: '24px auto' }}>
             <p className="ty-title" style={{ color: 'var(--ink)' }}>
               {doc.fileName}
             </p>
             <p className="ty-body" style={{ color: 'var(--muted)', marginTop: '6px' }}>
-              Este formato ({doc.mimeType}) pode ser salvo ou enviado para outro aplicativo no seu
-              dispositivo.
+              {canShare
+                ? `Arquivos deste tipo (${resolvedMime}) não possuem pré-visualização interna no navegador. Toque abaixo para abrir na Visualização Rápida ou em outro app do iPhone.`
+                : `Arquivos deste tipo (${resolvedMime}) não possuem pré-visualização interna no navegador e podem ser salvos no dispositivo.`}
             </p>
             <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
               <button
@@ -392,8 +520,17 @@ export const InAppDocumentViewerModal: React.FC<InAppDocumentViewerModalProps> =
                 style={{ flex: 1 }}
                 onClick={() => void shareOrDownloadCachedFile(core, doc, canShare)}
               >
-                <Download size={17} strokeWidth={1.75} />
-                <span>{canShare ? 'Compartilhar / Salvar' : 'Baixar arquivo'}</span>
+                {canShare ? (
+                  <>
+                    <ExternalLink size={17} strokeWidth={1.75} />
+                    <span>Abrir em outro app / Visualização Rápida</span>
+                  </>
+                ) : (
+                  <>
+                    <Download size={17} strokeWidth={1.75} />
+                    <span>Salvar arquivo</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

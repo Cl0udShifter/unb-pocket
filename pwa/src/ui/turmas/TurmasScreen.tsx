@@ -39,6 +39,7 @@ import {
   SegmentedPillBar,
   SkeletonBox,
   StatusTag,
+  UnbPullToRefreshBox,
 } from '../components/CommonComponents';
 import type {
   AuthUiState,
@@ -156,27 +157,29 @@ export const TurmasScreen: React.FC<TurmasScreenProps> = ({
         }
       />
 
-      <div className="screen-scroll">
-        {!hasOfflineOrAuthData ? (
-          <>
-            {uiState.listError && (
-              <ErrorBanner
-                banner={uiState.listError}
-                onRetry={uiState.listError.canRetry ? onRefresh : null}
-                onDismiss={onDismissError}
-              />
-            )}
-            <EmptyStateCard
-              icon={Lock}
-              title="Entre com sua conta do SIGAA"
-              body="Conecte sua matrícula UnB para acompanhar seu horário semanal oficial, aulas do dia, materiais, frequências e avisos das turmas."
-              actionLabel="Entrar no SIGAA"
-              onAction={onOpenLogin}
+      {!hasOfflineOrAuthData ? (
+        <div className="screen-scroll">
+          {uiState.listError && (
+            <ErrorBanner
+              banner={uiState.listError}
+              onRetry={uiState.listError.canRetry ? onRefresh : null}
+              onDismiss={onDismissError}
             />
-          </>
-        ) : (
-          <>
-            {uiState.listError && (
+          )}
+          <EmptyStateCard
+            icon={Lock}
+            title="Entre com sua conta do SIGAA"
+            body="Conecte sua matrícula UnB para acompanhar seu horário semanal oficial, aulas do dia, materiais, frequências e avisos das turmas."
+            actionLabel="Entrar no SIGAA"
+            onAction={onOpenLogin}
+          />
+        </div>
+      ) : (
+        <UnbPullToRefreshBox
+          isRefreshing={uiState.isRefreshingList || isEssentialSyncing}
+          onRefresh={onRefresh}
+        >
+          {uiState.listError && (
               <ErrorBanner
                 banner={uiState.listError}
                 onRetry={uiState.listError.canRetry ? onRefresh : null}
@@ -356,9 +359,8 @@ export const TurmasScreen: React.FC<TurmasScreenProps> = ({
                 syncedAtEpochMillis={uiState.turmas.syncedAtEpochMillis}
               />
             )}
-          </>
-        )}
-      </div>
+        </UnbPullToRefreshBox>
+      )}
     </div>
   );
 };

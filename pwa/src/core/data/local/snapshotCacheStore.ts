@@ -96,6 +96,7 @@ export class SnapshotCacheStore {
   private readonly dbPromise: Promise<IDBPDatabase<UnbCacheDbSchema>>;
   private readonly channels = new Map<string, MutableStateValue<SyncedData<unknown> | null>>();
   private readonly hydratedKeys = new Set<string>();
+  private readonly hydratedDoneKeys = new Set<string>();
 
   constructor(dbName: string = CACHE_DB_NAME) {
     this.dbPromise = getSharedCacheDb(dbName);
@@ -114,15 +115,37 @@ export class SnapshotCacheStore {
     if (!this.hydratedKeys.has(cacheKey)) {
       this.hydratedKeys.add(cacheKey);
       void this.get<T>(cacheKey).then((stored) => {
+        this.hydratedDoneKeys.add(cacheKey);
         if (stored !== null) {
           channel!.value = stored;
         } else if (channel!.value === null && fallbackIfMissing !== null) {
           channel!.value = fallbackIfMissing;
+        } else {
+          // Notify subscribers even when IndexedDB resolves empty (null) so initial cache flags settle immediately
+          channel!.notify();
         }
       });
     }
 
-    return channel as ObservableValue<SyncedData<T> | null>;
+    const baseChannel = channel as ObservableValue<SyncedData<T> | null>;
+    return {
+      getSnapshot: baseChannel.getSnapshot,
+      subscribe: (listener) => {
+        let active = true;
+        const unsub = baseChannel.subscribe(listener);
+        if (this.hydratedDoneKeys.has(cacheKey)) {
+          queueMicrotask(() => {
+            if (active) {
+              listener(baseChannel.getSnapshot());
+            }
+          });
+        }
+        return () => {
+          active = false;
+          unsub();
+        };
+      },
+    };
   }
 
   async get<T>(cacheKey: string): Promise<SyncedData<T> | null> {
@@ -184,6 +207,7 @@ export class SnapshotCacheStore {
       syncedAtEpochMillis: params.syncedAtEpochMillis,
     };
     this.hydratedKeys.add(params.cacheKey);
+    this.hydratedDoneKeys.add(params.cacheKey);
     const channel = this.channels.get(params.cacheKey);
     if (channel) {
       channel.value = synced;

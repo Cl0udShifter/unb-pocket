@@ -9,7 +9,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type {
   DataOrigin,
   PreloadProgress,
@@ -83,11 +83,11 @@ export const HeaderActionIconButton: React.FC<{
     aria-label={label}
     title={label}
   >
-    {isLoading ? (
-      <SkeletonInlineBar width={20} height={6} color="var(--ink)" />
-    ) : (
-      <Icon size={21} strokeWidth={1.75} />
-    )}
+    <Icon
+      size={21}
+      strokeWidth={1.75}
+      className={isLoading ? 'icon-spin' : undefined}
+    />
     {showDot && !isLoading && <span className="icon-action-btn__dot" aria-hidden="true" />}
   </button>
 );
@@ -704,6 +704,184 @@ export const PortalZoomSplashOverlay: React.FC<{
               : 'transform 260ms cubic-bezier(0.22, 1, 0.36, 1), opacity 220ms ease',
         }}
       />
+    </div>
+  );
+};
+
+const PULL_THRESHOLD_PX = 64;
+const MAX_PULL_PX = 108;
+
+export const UnbPullToRefreshBox: React.FC<{
+  readonly isRefreshing: boolean;
+  readonly onRefresh: () => void;
+  readonly className?: string;
+  readonly children: React.ReactNode;
+}> = ({ isRefreshing, onRefresh, className = 'screen-scroll', children }) => {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [pullPx, setPullPx] = useState(0);
+  const pullStateRef = useRef({
+    tracking: false,
+    pulling: false,
+    startX: 0,
+    startY: 0,
+    currentPull: 0,
+  });
+
+  useEffect(() => {
+    if (isRefreshing) {
+      setPullPx(0);
+      pullStateRef.current.currentPull = 0;
+      pullStateRef.current.pulling = false;
+      pullStateRef.current.tracking = false;
+    }
+  }, [isRefreshing]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent): void => {
+      if (isRefreshing || e.touches.length !== 1 || el.scrollTop > 1) {
+        pullStateRef.current.tracking = false;
+        return;
+      }
+      const t = e.touches[0];
+      pullStateRef.current = {
+        tracking: true,
+        pulling: false,
+        startX: t.clientX,
+        startY: t.clientY,
+        currentPull: 0,
+      };
+    };
+
+    const onTouchMove = (e: TouchEvent): void => {
+      const st = pullStateRef.current;
+      if (!st.tracking || isRefreshing || e.touches.length !== 1) return;
+      if (el.scrollTop > 1 && !st.pulling) {
+        st.tracking = false;
+        return;
+      }
+
+      const t = e.touches[0];
+      const dx = t.clientX - st.startX;
+      const dy = t.clientY - st.startY;
+
+      if (!st.pulling) {
+        if (dy < 8) return;
+        if (Math.abs(dx) > dy * 0.85) {
+          st.tracking = false;
+          return;
+        }
+        st.pulling = true;
+      }
+
+      if (dy > 0 && el.scrollTop <= 0) {
+        if (e.cancelable) {
+          e.preventDefault();
+        }
+        const damped = Math.min(MAX_PULL_PX, Math.max(0, (dy - 8) * 0.52));
+        st.currentPull = damped;
+        setPullPx(damped);
+      } else {
+        st.currentPull = 0;
+        setPullPx(0);
+      }
+    };
+
+    const finishPull = (): void => {
+      const st = pullStateRef.current;
+      if (!st.tracking) return;
+      const shouldTrigger = st.pulling && st.currentPull >= PULL_THRESHOLD_PX && !isRefreshing;
+      st.tracking = false;
+      st.pulling = false;
+      st.currentPull = 0;
+      setPullPx(0);
+      if (shouldTrigger) {
+        onRefresh();
+      }
+    };
+
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', finishPull, { passive: true });
+    el.addEventListener('touchcancel', finishPull, { passive: true });
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', finishPull);
+      el.removeEventListener('touchcancel', finishPull);
+    };
+  }, [isRefreshing, onRefresh]);
+
+  const distanceFraction = Math.min(1, pullPx / PULL_THRESHOLD_PX);
+  const showIndicator = isRefreshing || distanceFraction > 0.04;
+  const visualFraction = isRefreshing ? 1 : distanceFraction;
+
+  return (
+    <div
+      style={{
+        position: 'relative',
+        flex: 1,
+        minHeight: 0,
+        width: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+      }}
+    >
+      {showIndicator && (
+        <div
+          aria-hidden="true"
+          style={{
+            position: 'absolute',
+            top: '10px',
+            left: '50%',
+            zIndex: 18,
+            pointerEvents: 'none',
+            opacity: visualFraction,
+            transform: `translate(-50%, ${isRefreshing ? 0 : (visualFraction - 1) * 18}px)`,
+            transition: pullPx > 0 ? 'none' : 'opacity 180ms ease, transform 180ms ease',
+            borderRadius: 'var(--radius-capsule)',
+            backgroundColor: 'var(--surface)',
+            border: '1px solid var(--border)',
+            padding: '8px 14px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          {isRefreshing ? (
+            <SkeletonInlineBar width={38} height={6} color="var(--ink)" />
+          ) : (
+            <span
+              style={{
+                display: 'block',
+                width: '38px',
+                height: '6px',
+                borderRadius: 'var(--radius-capsule)',
+                backgroundColor: 'var(--muted)',
+                transform: `scaleX(${0.42 + 0.58 * visualFraction})`,
+                opacity: 0.55 + 0.3 * visualFraction,
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      <div
+        ref={scrollRef}
+        className={className}
+        style={
+          pullPx > 0
+            ? {
+                transform: `translateY(${Math.round(pullPx * 0.36)}px)`,
+              }
+            : undefined
+        }
+      >
+        {children}
+      </div>
     </div>
   );
 };

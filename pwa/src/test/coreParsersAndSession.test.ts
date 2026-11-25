@@ -463,7 +463,7 @@ describe('RU Allergen MSE Classifier, PDF Grid Parser, and QR Carteirinha Decode
     expect(diff.notifications).toHaveLength(1);
     expect(diff.notifications[0].tipo).toBe('INDICES_ATUALIZADOS');
 
-    // Quick smoke check on RuMenuPdfParser empty handling
+    // Quick smoke check on RuMenuPdfParser empty handling + kerning-split date cells
     const emptyPdfRes = RuMenuPdfParser.parsePages({
       campus: 'DARCY_RIBEIRO',
       semanaLabel: '23/11 a 29/11',
@@ -474,5 +474,59 @@ describe('RU Allergen MSE Classifier, PDF Grid Parser, and QR Carteirinha Decode
       pages: [],
     });
     expect(emptyPdfRes.ok).toBe(false);
+
+    const gridCols = [80, 180, 300, 420];
+    const gridRows = [80, 120, 160, 200, 240, 280];
+    const gridLines = [
+      ...gridCols.map((x) => ({ x0: x, top: 80, x1: x, bottom: 280 })),
+      ...gridRows.map((y) => ({ x0: 80, top: y, x1: 420, bottom: y })),
+    ];
+    const kerningSplitRes = RuMenuPdfParser.parsePages({
+      campus: 'DARCY_RIBEIRO',
+      semanaLabel: '23/11/2026 a 29/11/2026',
+      pdfUrl: 'https://ru.unb.br/darcy.pdf',
+      fallbackImageUrl: null,
+      localPdfPath: null,
+      modifiedGmt: '2026-11-19T11:19:39',
+      pages: [
+        {
+          pageIndex: 0,
+          pageWidth: 842,
+          pageHeight: 595,
+          lines: gridLines,
+          images: [],
+          texts: [
+            { text: 'COMPOSIÇÃO', x0: 90, top: 92, x1: 160, bottom: 104 },
+            { text: '2ª FEIRA', x0: 210, top: 88, x1: 260, bottom: 98 },
+            { text: '(2', x0: 205, top: 102, x1: 214, bottom: 112 },
+            { text: '3/11', x0: 214, top: 102, x1: 234, bottom: 112 },
+            { text: '/2026)', x0: 234.1, top: 102, x1: 262, bottom: 112 },
+            { text: 'Panificação', x0: 90, top: 132, x1: 150, bottom: 144 },
+            { text: 'Pão Francês', x0: 200, top: 132, x1: 270, bottom: 144 },
+          ],
+        },
+        {
+          pageIndex: 1,
+          pageWidth: 842,
+          pageHeight: 595,
+          lines: gridLines,
+          images: [],
+          texts: [
+            { text: 'COMPOSIÇÃO', x0: 90, top: 92, x1: 160, bottom: 104 },
+            { text: '2ª FEIRA', x0: 210, top: 88, x1: 260, bottom: 98 },
+            { text: '(23/11/2026)', x0: 205, top: 102, x1: 262, bottom: 112 },
+            { text: 'Prato Principal', x0: 90, top: 132, x1: 165, bottom: 144 },
+            { text: 'Frango Grelhado', x0: 200, top: 132, x1: 280, bottom: 144 },
+          ],
+        },
+      ],
+    });
+    expect(kerningSplitRes.ok).toBe(true);
+    if (kerningSplitRes.ok) {
+      expect(kerningSplitRes.value.dias).toHaveLength(1);
+      expect(kerningSplitRes.value.dias[0].dataTexto).toBe('23/11/2026');
+      expect(kerningSplitRes.value.dias[0].refeicoes.CAFE_DA_MANHA).toHaveLength(1);
+      expect(kerningSplitRes.value.dias[0].refeicoes.ALMOCO).toHaveLength(1);
+    }
   });
 });

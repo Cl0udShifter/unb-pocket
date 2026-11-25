@@ -394,11 +394,20 @@ function extractCellText(spans: readonly PdfTextSpan[], bbox: CellBbox): string 
       return a.x0 - b.x0;
     });
 
-  return inside
-    .map((s) => s.text)
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  let out = '';
+  let prev: PdfTextSpan | null = null;
+  for (const span of inside) {
+    if (!prev) {
+      out = span.text;
+    } else {
+      const sameLine = Math.abs(span.top - prev.top) <= 3.5;
+      const gap = span.x0 - prev.x1;
+      const sep = sameLine && gap >= -1.5 && gap <= 1.35 ? '' : ' ';
+      out += `${sep}${span.text}`;
+    }
+    prev = span;
+  }
+  return out.replace(/\s+/g, ' ').trim();
 }
 
 function detectDayColumns(cellTexts: string[][]): {
@@ -411,8 +420,12 @@ function detectDayColumns(cellTexts: string[][]): {
 
   for (let r = 0; r < headerLimit; r += 1) {
     for (let c = 0; c < cellTexts[r].length; c += 1) {
-      const text = cellTexts[r][c];
-      if (!text) continue;
+      const rawText = cellTexts[r][c];
+      if (!rawText) continue;
+      // Repair kerning-split date digits such as "2 3/11 /2026" -> "23/11/2026"
+      const text = rawText
+        .replace(/(\d)\s+(?=\d|\/)/g, '$1')
+        .replace(/\/\s+(?=\d)/g, '/');
       const dateMatch = DATE_REGEX.exec(text);
       if (dateMatch) {
         const entry = map.get(c) ?? {};

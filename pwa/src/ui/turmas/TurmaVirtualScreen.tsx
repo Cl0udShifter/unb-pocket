@@ -40,6 +40,7 @@ import {
   SkeletonBox,
   SkeletonInlineBar,
   StatusTag,
+  UnbPullToRefreshBox,
 } from '../components/CommonComponents';
 import type { ViewableDocumentRequest } from '../components/InAppDocumentViewerModal';
 import { SafeHtmlContent } from '../components/SafeHtmlContent';
@@ -108,6 +109,15 @@ export const TurmaVirtualScreen: React.FC<TurmaVirtualScreenProps> = ({
         ? uiState.frequencia
         : uiState.notasParciais;
 
+  const openCachedArquivo = (file: ArquivoBaixado): void => {
+    onOpenDownloadedFile({
+      title: file.nomeArquivo,
+      fileName: file.nomeArquivo,
+      localFilePath: file.localFilePath,
+      mimeType: file.mimeType,
+    });
+  };
+
   return (
     <div className="screen-root">
       <EditorialHeader
@@ -130,19 +140,15 @@ export const TurmaVirtualScreen: React.FC<TurmaVirtualScreenProps> = ({
         }
       />
 
-      <div className="screen-scroll screen-scroll--subpage">
+      <UnbPullToRefreshBox
+        isRefreshing={uiState.isRefreshingDetail}
+        onRefresh={onRefreshTab}
+        className="screen-scroll screen-scroll--subpage"
+      >
         {uiState.downloadedFileEvent && (
           <DownloadSuccessBanner
             downloaded={uiState.downloadedFileEvent}
-            onOpen={() => {
-              const d = uiState.downloadedFileEvent!;
-              onOpenDownloadedFile({
-                title: d.nomeArquivo,
-                fileName: d.nomeArquivo,
-                localFilePath: d.localFilePath,
-                mimeType: d.mimeType,
-              });
-            }}
+            onOpen={() => openCachedArquivo(uiState.downloadedFileEvent!)}
             onDismiss={onConsumeDownloadedFile}
           />
         )}
@@ -193,7 +199,9 @@ export const TurmaVirtualScreen: React.FC<TurmaVirtualScreenProps> = ({
                       key={`${idx}_${topico.index}_${topico.titulo}`}
                       topico={topico}
                       downloadingItemId={uiState.downloadingItemId}
+                      downloadedFilesByItemId={uiState.downloadedFilesByItemId}
                       onDownloadMaterial={onDownloadMaterial}
+                      onOpenCachedFile={openCachedArquivo}
                     />
                   ))
                 )}
@@ -225,7 +233,9 @@ export const TurmaVirtualScreen: React.FC<TurmaVirtualScreenProps> = ({
                     badgeLabel="ÚLTIMA NOTÍCIA"
                     noticia={detalhe.ultimaNoticia}
                     downloadingItemId={uiState.downloadingItemId}
+                    downloadedFilesByItemId={uiState.downloadedFilesByItemId}
                     onDownloadAnexo={onDownloadAnexo}
+                    onOpenCachedFile={openCachedArquivo}
                   />
                 )}
 
@@ -287,7 +297,9 @@ export const TurmaVirtualScreen: React.FC<TurmaVirtualScreenProps> = ({
                               <NoticiaBodyContent
                                 noticia={fullNoticia}
                                 downloadingItemId={uiState.downloadingItemId}
+                                downloadedFilesByItemId={uiState.downloadedFilesByItemId}
                                 onDownloadAnexo={onDownloadAnexo}
+                                onOpenCachedFile={openCachedArquivo}
                               />
                             </div>
                           )}
@@ -397,7 +409,7 @@ export const TurmaVirtualScreen: React.FC<TurmaVirtualScreenProps> = ({
             syncedAtEpochMillis={activeOrigin.syncedAtEpochMillis}
           />
         )}
-      </div>
+      </UnbPullToRefreshBox>
     </div>
   );
 };
@@ -439,8 +451,16 @@ const CourseProgressCard: React.FC<{ readonly detalhe: TurmaDetalheAva }> = ({ d
 const TopicoCard: React.FC<{
   readonly topico: TopicoAulaAva;
   readonly downloadingItemId: string | null;
+  readonly downloadedFilesByItemId: Readonly<Record<string, ArquivoBaixado>>;
   readonly onDownloadMaterial: (materialId: string) => void;
-}> = ({ topico, downloadingItemId, onDownloadMaterial }) => (
+  readonly onOpenCachedFile: (file: ArquivoBaixado) => void;
+}> = ({
+  topico,
+  downloadingItemId,
+  downloadedFilesByItemId,
+  onDownloadMaterial,
+  onOpenCachedFile,
+}) => (
   <EditorialCard style={{ gap: '8px' }}>
     {topico.periodoTexto && topico.periodoTexto.trim().length > 0 && (
       <div>
@@ -459,14 +479,24 @@ const TopicoCard: React.FC<{
       <>
         <HairlineDivider style={{ margin: '4px 0' }} />
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {topico.materiais.map((mat) => (
-            <MaterialRow
-              key={mat.materialId}
-              material={mat}
-              isDownloading={downloadingItemId === mat.materialId}
-              onClick={() => onDownloadMaterial(mat.materialId)}
-            />
-          ))}
+          {topico.materiais.map((mat) => {
+            const cached = downloadedFilesByItemId[mat.materialId];
+            return (
+              <MaterialRow
+                key={mat.materialId}
+                material={mat}
+                isDownloading={downloadingItemId === mat.materialId}
+                isDownloaded={Boolean(cached)}
+                onClick={() => {
+                  if (cached) {
+                    onOpenCachedFile(cached);
+                  } else {
+                    onDownloadMaterial(mat.materialId);
+                  }
+                }}
+              />
+            );
+          })}
         </div>
       </>
     )}
@@ -476,8 +506,9 @@ const TopicoCard: React.FC<{
 const MaterialRow: React.FC<{
   readonly material: MaterialAulaAva;
   readonly isDownloading: boolean;
+  readonly isDownloaded: boolean;
   readonly onClick: () => void;
-}> = ({ material, isDownloading, onClick }) => {
+}> = ({ material, isDownloading, isDownloaded, onClick }) => {
   const extClean = material.tipoExtensao.trim();
   const showExt =
     extClean.length > 0 && !['indicator', 'file'].includes(extClean.toLowerCase());
@@ -502,6 +533,10 @@ const MaterialRow: React.FC<{
               <p className="ty-label" style={{ color: 'var(--muted)' }}>
                 Baixando arquivo...
               </p>
+            ) : isDownloaded ? (
+              <p className="ty-label" style={{ color: 'var(--info-ink)' }}>
+                Salvo · Toque para abrir
+              </p>
             ) : showExt ? (
               <p className="ty-mono" style={{ color: 'var(--muted)' }}>
                 {extClean.toUpperCase()}
@@ -511,6 +546,8 @@ const MaterialRow: React.FC<{
         </div>
         {isDownloading ? (
           <SkeletonInlineBar width={22} height={6} color="var(--muted)" />
+        ) : isDownloaded ? (
+          <CheckCircle2 size={19} strokeWidth={1.75} style={{ color: 'var(--info-ink)', flexShrink: 0 }} />
         ) : (
           <Download size={19} strokeWidth={1.75} style={{ color: 'var(--ink)', flexShrink: 0 }} />
         )}
@@ -523,8 +560,17 @@ const NoticiaFullCard: React.FC<{
   readonly badgeLabel: string;
   readonly noticia: NoticiaTurmaAva;
   readonly downloadingItemId: string | null;
+  readonly downloadedFilesByItemId: Readonly<Record<string, ArquivoBaixado>>;
   readonly onDownloadAnexo: (id: string) => void;
-}> = ({ badgeLabel, noticia, downloadingItemId, onDownloadAnexo }) => (
+  readonly onOpenCachedFile: (file: ArquivoBaixado) => void;
+}> = ({
+  badgeLabel,
+  noticia,
+  downloadingItemId,
+  downloadedFilesByItemId,
+  onDownloadAnexo,
+  onOpenCachedFile,
+}) => (
   <EditorialCard style={{ gap: '8px' }}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
       <StatusTag text={badgeLabel} tone="INVERTED" />
@@ -540,7 +586,9 @@ const NoticiaFullCard: React.FC<{
     <NoticiaBodyContent
       noticia={noticia}
       downloadingItemId={downloadingItemId}
+      downloadedFilesByItemId={downloadedFilesByItemId}
       onDownloadAnexo={onDownloadAnexo}
+      onOpenCachedFile={onOpenCachedFile}
     />
   </EditorialCard>
 );
@@ -548,8 +596,16 @@ const NoticiaFullCard: React.FC<{
 const NoticiaBodyContent: React.FC<{
   readonly noticia: NoticiaTurmaAva;
   readonly downloadingItemId: string | null;
+  readonly downloadedFilesByItemId: Readonly<Record<string, ArquivoBaixado>>;
   readonly onDownloadAnexo: (id: string) => void;
-}> = ({ noticia, downloadingItemId, onDownloadAnexo }) => {
+  readonly onOpenCachedFile: (file: ArquivoBaixado) => void;
+}> = ({
+  noticia,
+  downloadingItemId,
+  downloadedFilesByItemId,
+  onDownloadAnexo,
+  onOpenCachedFile,
+}) => {
   const hasHtml = noticia.conteudoHtml.trim().length > 0;
   const plainBody = noticia.conteudoTexto.trim() || Formatters.htmlToPlainText(noticia.conteudoHtml);
 
@@ -570,14 +626,24 @@ const NoticiaBodyContent: React.FC<{
 
       {noticia.anexos.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '4px' }}>
-          {noticia.anexos.map((anexo) => (
-            <AnexoRow
-              key={anexo.id}
-              anexo={anexo}
-              isDownloading={downloadingItemId === anexo.id}
-              onClick={() => onDownloadAnexo(anexo.id)}
-            />
-          ))}
+          {noticia.anexos.map((anexo) => {
+            const cached = downloadedFilesByItemId[anexo.id];
+            return (
+              <AnexoRow
+                key={anexo.id}
+                anexo={anexo}
+                isDownloading={downloadingItemId === anexo.id}
+                isDownloaded={Boolean(cached)}
+                onClick={() => {
+                  if (cached) {
+                    onOpenCachedFile(cached);
+                  } else {
+                    onDownloadAnexo(anexo.id);
+                  }
+                }}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -587,22 +653,29 @@ const NoticiaBodyContent: React.FC<{
 const AnexoRow: React.FC<{
   readonly anexo: AnexoArquivoSigaa;
   readonly isDownloading: boolean;
+  readonly isDownloaded: boolean;
   readonly onClick: () => void;
-}> = ({ anexo, isDownloading, onClick }) => (
+}> = ({ anexo, isDownloading, isDownloaded, onClick }) => (
   <InnerTile onClick={!isDownloading ? onClick : undefined}>
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <p className="ty-label" style={{ color: 'var(--ink)' }}>
           {anexo.nomeArquivo}
         </p>
-        {isDownloading && (
+        {isDownloading ? (
           <p className="ty-label" style={{ color: 'var(--muted)' }}>
             Baixando anexo...
           </p>
-        )}
+        ) : isDownloaded ? (
+          <p className="ty-label" style={{ color: 'var(--info-ink)' }}>
+            Salvo · Toque para abrir
+          </p>
+        ) : null}
       </div>
       {isDownloading ? (
         <SkeletonInlineBar width={20} height={6} color="var(--muted)" />
+      ) : isDownloaded ? (
+        <CheckCircle2 size={18} strokeWidth={1.75} style={{ color: 'var(--info-ink)' }} />
       ) : (
         <Download size={18} strokeWidth={1.75} style={{ color: 'var(--ink)' }} />
       )}

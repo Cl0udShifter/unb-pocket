@@ -585,6 +585,9 @@ function isCacheUpToDate(
     cached !== null &&
     cached.modifiedGmt === modifiedGmt &&
     cached.pdfUrl === pdfUrl &&
-    cached.parserStatus === 'PARSED_STRUCTURED'
+    cached.parserStatus === 'PARSED_STRUCTURED' &&
+    cached.dias.length > 0 &&
+    cached.dias.length <= 7 &&
+    cached.dias.every((d) => !d.dataTexto.startsWith('COL_'))
   );
 }

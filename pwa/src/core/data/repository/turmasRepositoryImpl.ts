@@ -690,10 +690,16 @@ export class TurmasRepositoryImpl implements TurmasRepository {
     payload: HttpPayload,
   ): Promise<CoreResult<ArquivoBaixado>> {
     const rawExt = material.tipoExtensao.trim().toLowerCase();
+    const cleanedExt = rawExt
+      .replace(/^icone_?/, '')
+      .replace(/_?icon$/, '')
+      .replace(/^\./, '');
     const validExt =
-      rawExt &&
-      !['indicator', 'file', 'spacer', 'loading', 'spinner', 'ajax', 'blank'].includes(rawExt)
-        ? rawExt
+      cleanedExt &&
+      !['indicator', 'file', 'spacer', 'loading', 'spinner', 'ajax', 'blank', 'geral'].includes(
+        cleanedExt,
+      )
+        ? cleanedExt
         : payload.isPdf()
           ? 'pdf'
           : null;
@@ -750,19 +756,29 @@ function resolveMimeType(
   fileName: string,
   isPdf: boolean,
 ): string {
+  if (isPdf) return 'application/pdf';
   const rawHeader = (headerContentType?.split(';')[0] ?? '').trim();
-  if (
-    rawHeader &&
-    rawHeader.toLowerCase() !== 'application/octet-stream' &&
-    rawHeader.toLowerCase() !== 'application/force-download'
-  ) {
+  const lowerHeader = rawHeader.toLowerCase();
+  const isGenericBinaryHeader =
+    !lowerHeader ||
+    lowerHeader === 'application/octet-stream' ||
+    lowerHeader === 'application/force-download' ||
+    lowerHeader === 'application/x-download' ||
+    lowerHeader === 'application/download' ||
+    lowerHeader === 'application/save' ||
+    lowerHeader === 'binary/octet-stream' ||
+    lowerHeader === 'unknown/unknown';
+
+  if (!isGenericBinaryHeader) {
     return rawHeader;
   }
-  if (isPdf) return 'application/pdf';
   const ext = fileName.includes('.') ? fileName.split('.').pop()?.toLowerCase() ?? '' : '';
   switch (ext) {
     case 'pdf':
       return 'application/pdf';
+    case 'html':
+    case 'htm':
+      return 'text/html';
     case 'zip':
       return 'application/zip';
     case 'rar':
@@ -782,7 +798,20 @@ function resolveMimeType(
     case 'pptx':
       return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
     case 'txt':
+    case 'md':
+    case 'py':
+    case 'c':
+    case 'cpp':
+    case 'h':
+    case 'java':
+    case 'kt':
+    case 'js':
+    case 'ts':
+    case 'sql':
+    case 'log':
       return 'text/plain';
+    case 'json':
+      return 'application/json';
     case 'csv':
       return 'text/csv';
     case 'png':
@@ -790,6 +819,12 @@ function resolveMimeType(
     case 'jpg':
     case 'jpeg':
       return 'image/jpeg';
+    case 'gif':
+      return 'image/gif';
+    case 'webp':
+      return 'image/webp';
+    case 'svg':
+      return 'image/svg+xml';
     case 'mp4':
       return 'video/mp4';
     default:

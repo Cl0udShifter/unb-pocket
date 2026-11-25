@@ -133,9 +133,23 @@ export const ScheduleSelectionResolver = {
     cardapio: CardapioSemanalRu | null,
     nowEpochMillis: number,
   ): RuSelecaoInicial {
+    const dias = cardapio?.dias ?? [];
+    const dayIndex = this.resolveRuDayIndex(dias, nowEpochMillis);
+    const timeMeal = this.resolveRuMeal(nowEpochMillis);
+    const selectedDay = dias[dayIndex];
+    if (!selectedDay) {
+      return { dayIndex, refeicao: timeMeal };
+    }
+    if ((selectedDay.refeicoes[timeMeal]?.length ?? 0) > 0) {
+      return { dayIndex, refeicao: timeMeal };
+    }
+    const fallbackOrder: readonly TipoRefeicao[] = ['ALMOCO', 'JANTAR', 'CAFE_DA_MANHA'];
+    const availableMeal = fallbackOrder.find(
+      (meal) => (selectedDay.refeicoes[meal]?.length ?? 0) > 0,
+    );
     return {
-      dayIndex: this.resolveRuDayIndex(cardapio?.dias ?? [], nowEpochMillis),
-      refeicao: this.resolveRuMeal(nowEpochMillis),
+      dayIndex,
+      refeicao: availableMeal ?? timeMeal,
     };
   },
 

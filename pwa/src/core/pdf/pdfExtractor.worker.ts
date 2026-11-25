@@ -1,12 +1,14 @@
 import * as pdfjs from 'pdfjs-dist';
-import pdfjsWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+import * as pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs';
 import {
   extractCarteirinhaWithPdfJs,
   extractRuMenuPagesWithPdfJs,
   extractTextLinesWithPdfJs,
 } from './pdfExtractorCore';
 
-pdfjs.GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
+// Register WorkerMessageHandler directly inside our dedicated worker thread
+// so PDF.js never attempts to spawn a nested sub-worker on iOS Safari WebKit.
+(globalThis as unknown as { pdfjsWorker?: unknown }).pdfjsWorker = pdfjsWorker;
 
 export type PdfWorkerRequest =
   | { id: number; op: 'extractCarteirinha'; pdfBytes: Uint8Array }

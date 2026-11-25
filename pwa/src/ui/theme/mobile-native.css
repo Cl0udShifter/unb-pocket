@@ -3,6 +3,14 @@
 *::after {
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 
 html,
@@ -88,15 +96,39 @@ input:focus-visible,
   height: 100%;
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
-  transition:
-    transform 420ms cubic-bezier(0.4, 0, 0.2, 1),
-    opacity 200ms ease;
+  transform-origin: center center;
+  will-change: transform;
+  transition: transform 420ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes unb-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.icon-spin {
+  animation: unb-spin 780ms linear infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .app-flip-face {
-    transition: opacity 150ms ease;
+    transition: opacity 180ms ease;
     transform: none !important;
+    backface-visibility: visible;
+    -webkit-backface-visibility: visible;
+  }
+
+  .app-flip-face--hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .icon-spin {
+    animation: none;
   }
 }
 

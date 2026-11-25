@@ -39,6 +39,7 @@ import {
   SkeletonBox,
   SkeletonInlineBar,
   StatusTag,
+  UnbPullToRefreshBox,
 } from '../components/CommonComponents';
 import { ConfirmDialog, ModalDialogSheet } from '../components/ModalDialogSheet';
 import type { AuthUiState, DiscenteUiState } from '../viewmodel/appStores';
@@ -168,37 +169,39 @@ export const DiscenteScreen: React.FC<DiscenteScreenProps> = ({
         }
       />
 
-      <div className="screen-scroll">
-        {!hasDataOrAuth ? (
-          <>
-            {uiState.profileError && (
-              <ErrorBanner
-                banner={uiState.profileError}
-                onRetry={uiState.profileError.canRetry ? onRefreshProfile : null}
-                onDismiss={onDismissProfileError}
-              />
-            )}
-
-            <EmptyStateCard
-              icon={Lock}
-              title="Entre com sua conta do SIGAA"
-              body="Veja seu IRA, Média Ponderada, integralização curricular, saldo e extrato do RU, passe QR da catraca, boletim e declarações oficiais."
-              actionLabel="Entrar no SIGAA"
-              onAction={onOpenLogin}
+      {!hasDataOrAuth ? (
+        <div className="screen-scroll">
+          {uiState.profileError && (
+            <ErrorBanner
+              banner={uiState.profileError}
+              onRetry={uiState.profileError.canRetry ? onRefreshProfile : null}
+              onDismiss={onDismissProfileError}
             />
+          )}
 
-            <PwaAppUpdateCard
-              pwaUpdate={uiState.pwaUpdate}
-              updateError={uiState.updateError}
-              onCheckForUpdates={onCheckForUpdates}
-              onApplyUpdate={onApplyUpdate}
-              onOpenInstallGuide={() => setShowInstallGuide(true)}
-              onDismissUpdateError={onDismissUpdateError}
-            />
-          </>
-        ) : (
-          <>
-            <PreloadStatusBanner progress={authUiState.preloadProgress} />
+          <EmptyStateCard
+            icon={Lock}
+            title="Entre com sua conta do SIGAA"
+            body="Veja seu IRA, Média Ponderada, integralização curricular, saldo e extrato do RU, passe QR da catraca, boletim e declarações oficiais."
+            actionLabel="Entrar no SIGAA"
+            onAction={onOpenLogin}
+          />
+
+          <PwaAppUpdateCard
+            pwaUpdate={uiState.pwaUpdate}
+            updateError={uiState.updateError}
+            onCheckForUpdates={onCheckForUpdates}
+            onApplyUpdate={onApplyUpdate}
+            onOpenInstallGuide={() => setShowInstallGuide(true)}
+            onDismissUpdateError={onDismissUpdateError}
+          />
+        </div>
+      ) : (
+        <UnbPullToRefreshBox
+          isRefreshing={uiState.isRefreshingProfile || isEssentialSyncing}
+          onRefresh={onRefreshProfile}
+        >
+          <PreloadStatusBanner progress={authUiState.preloadProgress} />
 
             {authUiState.syncError && (
               <ErrorBanner
@@ -306,9 +309,8 @@ export const DiscenteScreen: React.FC<DiscenteScreenProps> = ({
                 syncedAtEpochMillis={(resumoSynced ?? saldoSynced)!.syncedAtEpochMillis}
               />
             )}
-          </>
-        )}
-      </div>
+        </UnbPullToRefreshBox>
+      )}
 
       <ConfirmDialog
         open={showLogoutDialog}
@@ -771,17 +773,19 @@ export const IosAddToHomeScreenSheet: React.FC<{
 );
 
 export const RuFullScreenQrPass: React.FC<{
+  readonly active?: boolean;
   readonly core: UnbPocketCore;
   readonly carteirinha: CarteirinhaEstudantil | null;
   readonly isLoading: boolean;
   readonly hasError: boolean;
   readonly onDismiss: () => void;
   readonly style?: React.CSSProperties;
-}> = ({ core, carteirinha, isLoading, hasError, onDismiss, style }) => {
+}> = ({ active = true, core, carteirinha, isLoading, hasError, onDismiss, style }) => {
   const [svgMarkup, setSvgMarkup] = useState<string | null>(null);
 
   // Keep iOS/mobile screen awake while holding QR at the RU turnstile
   useEffect(() => {
+    if (!active) return;
     let sentinel: WakeLockSentinel | null = null;
     if (typeof navigator !== 'undefined' && 'wakeLock' in navigator) {
       void navigator.wakeLock
@@ -794,7 +798,7 @@ export const RuFullScreenQrPass: React.FC<{
     return () => {
       void sentinel?.release().catch(() => undefined);
     };
-  }, []);
+  }, [active]);
 
   useEffect(() => {
     const payload = carteirinha?.qrPayload16Digitos?.trim();

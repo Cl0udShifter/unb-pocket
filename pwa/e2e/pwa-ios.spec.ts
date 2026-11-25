@@ -440,10 +440,20 @@ const SAMPLE_AVA_HOME_HTML = `<!doctype html><html><body>
     <span class="conteudoNoticia"><p>Revisem árvores AVL e grafos.</p><script>window.__xssExecuted = true;</script></span>
     <small><i>Prof. Dr. Bruno Ribas</i></small>
   </div>
-  <div class="topico-aula">
-    <h3>Semana 12 - Árvores Balanceadas (18/11/2026 - 24/11/2026)</h3>
-    <p>Implementação de rotações simples e duplas em AVL.</p>
-  </div>
+  <form id="formAva" action="/sigaa/ava/index.jsf" method="post">
+    <input type="hidden" name="formAva" value="formAva" />
+    <input type="hidden" name="javax.faces.ViewState" value="j_id_ava1" />
+    <div class="topico-aula">
+      <div class="titulo">Semana 12 - Árvores Balanceadas (18/11/2026 - 24/11/2026)</div>
+      <div class="conteudotopico">
+        <p>Implementação de rotações simples e duplas em AVL.</p>
+        <div class="item">
+          <img src="/sigaa/img/porta_arquivos/icones/pdf.png" />
+          <a onclick="jsfcljs(document.getElementById('formAva'),{'formAva:mat12':'formAva:mat12','id':'MAT_AVL_12'},'_blank');return false;">Roteiro Aula 12</a>
+        </div>
+      </div>
+    </div>
+  </form>
   <form id="formMenu" action="/sigaa/ava/index.jsf" method="post">
     <input type="hidden" name="formMenu" value="formMenu" />
     <input type="hidden" name="javax.faces.ViewState" value="j_id_ava1" />
@@ -580,6 +590,21 @@ async function installUnbMocks(page: Page): Promise<void> {
       return;
     }
 
+    if (decodedForm.includes('MAT_AVL_12')) {
+      await route.fulfill({
+        status: 200,
+        headers: {
+          'Content-Type': 'application/x-download',
+          'X-Unb-Content-Disposition': 'attachment; filename="Roteiro_Aula_12"',
+          'X-Unb-Status': '200',
+          'X-Unb-Final-Url': 'https://sigaa.unb.br/sigaa/ava/index.jsf',
+          'X-Unb-Cookies': encodeCookiesBase64(),
+        },
+        body: CARTEIRINHA_PDF,
+      });
+      return;
+    }
+
     if (decodedForm.includes('emitiCarteiraEstudantilUnb')) {
       await route.fulfill({
         status: 200,
@@ -647,9 +672,14 @@ test.describe('UnB Pocket PWA iOS Safari (WebKit) 1:1 Parity', () => {
     await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' });
     await installUnbMocks(page);
 
+    let unexpectedBrowserDownloads = 0;
+    page.on('download', () => {
+      unexpectedBrowserDownloads += 1;
+    });
+
     await page.goto('/');
 
-    // 1. Cardapio RU structured PDF parsing in WebKit Worker + First-visit iOS Install Card
+    // 1. Cardapio RU structured PDF parsing in WebKit Worker + active initial day chip + First-visit iOS Install Card
     await expect(page.getByRole('heading', { name: 'Cardápio RU' })).toBeVisible();
     await expect(page.getByText('Instalar no iPhone')).toBeVisible();
     await page.getByRole('button', { name: 'Ver passo a passo' }).click();
@@ -658,6 +688,11 @@ test.describe('UnB Pocket PWA iOS Safari (WebKit) 1:1 Parity', () => {
     await page.getByRole('button', { name: 'Fechar janela' }).click();
     await page.getByRole('button', { name: 'Dispensar aviso de instalação' }).click();
     await expect(page.getByText('Instalar no iPhone')).toBeHidden();
+
+    // Ensure a day chip is actively selected on open
+    await expect(
+      page.getByRole('tablist', { name: 'Dias do cardápio semanal' }).locator('[aria-selected="true"]'),
+    ).toHaveCount(1);
 
     await page.getByRole('tab', { name: 'Almoço' }).click();
     await expect(page.getByText('PRATOS PRINCIPAIS')).toBeVisible();
@@ -668,6 +703,13 @@ test.describe('UnB Pocket PWA iOS Safari (WebKit) 1:1 Parity', () => {
     await page.screenshot({
       path: path.join(SCREENSHOT_DIR, '01-ru-dark-iphone.png'),
     });
+
+    // Verify logged-out Turmas and Discente immediately show the SIGAA login prompt (not stuck skeleton cards)
+    await page.getByRole('tab', { name: 'Turmas' }).click();
+    await expect(page.getByText('Entre com sua conta do SIGAA')).toBeVisible();
+    await page.getByRole('tab', { name: 'Discente' }).click();
+    await expect(page.getByText('Entre com sua conta do SIGAA')).toBeVisible();
+    await page.getByRole('tab', { name: 'RU' }).click();
 
     // Open Portal RU (Notices & Prices native <dialog>)
     await page.getByRole('button', { name: 'Avisos e preços do RU' }).click();
@@ -700,9 +742,18 @@ test.describe('UnB Pocket PWA iOS Safari (WebKit) 1:1 Parity', () => {
       path: path.join(SCREENSHOT_DIR, '02-turmas-dark-iphone.png'),
     });
 
-    // Enter Turma Virtual (AVA) and verify XSS script tag was stripped by SafeHtmlContent
+    // Enter Turma Virtual (AVA), test Material Download + In-App Viewer Open (no duplicate download), and XSS stripping
     await page.getByText('ESTRUTURAS DE DADOS E ALGORITMOS').first().click();
     await expect(page.getByText('ANDAMENTO DO CURSO')).toBeVisible();
+    await page.getByText('Roteiro Aula 12').click();
+    await expect(page.getByText('Download concluído')).toBeVisible();
+    await page.getByRole('button', { name: 'Abrir', exact: true }).click();
+    await expect(
+      page.getByRole('dialog', { name: /Roteiro_Aula_12/i }).locator('canvas'),
+    ).toHaveCount(1);
+    expect(unexpectedBrowserDownloads).toBe(0);
+    await page.getByRole('button', { name: 'Fechar documento' }).click();
+
     await page.getByRole('tab', { name: 'Notícias' }).click();
     await expect(page.getByText('Prova 2 confirmada para sexta-feira')).toBeVisible();
     const xssFlag = await page.evaluate(
@@ -740,7 +791,7 @@ test.describe('UnB Pocket PWA iOS Safari (WebKit) 1:1 Parity', () => {
     // 5. Open Boletim & Mencoes
     await page.getByText('Boletim & Menções').click();
     await expect(page.getByText('PERÍODO 2026.1')).toBeVisible();
-    await expect(page.getByText('SS')).toBeVisible();
+    await expect(page.getByText('SS', { exact: true })).toBeVisible();
     await page.getByRole('button', { name: 'Voltar ao perfil' }).click();
 
     // 6. Emit Official Document and view inside InAppDocumentViewerModal

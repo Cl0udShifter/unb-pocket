@@ -13,6 +13,7 @@ import {
   PreloadStatusBanner,
   SkeletonBox,
   StatusTag,
+  UnbPullToRefreshBox,
   type StatusTagTone,
 } from '../components/CommonComponents';
 import type { AuthUiState, DiscenteUiState } from '../viewmodel/appStores';
@@ -66,7 +67,11 @@ export const BoletimScreen: React.FC<BoletimScreenProps> = ({
         }
       />
 
-      <div className="screen-scroll screen-scroll--subpage">
+      <UnbPullToRefreshBox
+        isRefreshing={uiState.isRefreshingBoletim || isPreloadingBoletim}
+        onRefresh={onRefresh}
+        className="screen-scroll screen-scroll--subpage"
+      >
         {uiState.boletimError && (
           <ErrorBanner
             banner={uiState.boletimError}
@@ -105,7 +110,7 @@ export const BoletimScreen: React.FC<BoletimScreenProps> = ({
             syncedAtEpochMillis={uiState.boletim.syncedAtEpochMillis}
           />
         )}
-      </div>
+      </UnbPullToRefreshBox>
     </div>
   );
 };

@@ -31,6 +31,13 @@ export class MutableStateValue<T> implements ObservableValue<T> {
     this.value = updater(this.current);
   }
 
+  notify(): void {
+    const snap = this.current;
+    for (const listener of this.listeners) {
+      listener(snap);
+    }
+  }
+
   subscribe = (listener: (value: T) => void): Unsubscribe => {
     this.listeners.add(listener);
     return () => {

@@ -303,6 +303,19 @@ export const UnbPocketApp: React.FC<UnbPocketAppProps> = ({
 
   const isTopLevelRoute = route.kind === 'home';
   const isQrPassOpen = discenteUiState.isFlippedToQr;
+  const [isFlipAnimating, setIsFlipAnimating] = useState(false);
+  const prevQrOpenRef = React.useRef(isQrPassOpen);
+
+  useEffect(() => {
+    if (prevQrOpenRef.current === isQrPassOpen) return;
+    prevQrOpenRef.current = isQrPassOpen;
+    setIsFlipAnimating(true);
+    const timer = setTimeout(() => {
+      setIsFlipAnimating(false);
+    }, 450);
+    return () => clearTimeout(timer);
+  }, [isQrPassOpen]);
+
   const isPreloadingCarteirinha =
     authUiState.preloadProgress.phase === 'RUNNING_BACKGROUND' &&
     authUiState.preloadProgress.currentTarget === 'Carteirinha Estudantil';
@@ -454,11 +467,11 @@ export const UnbPocketApp: React.FC<UnbPocketAppProps> = ({
       <div className="app-perspective-stage">
         {/* Frente: App Shell */}
         <div
-          className="app-flip-face"
+          className={`app-flip-face ${isQrPassOpen ? 'app-flip-face--hidden' : ''}`.trim()}
           aria-hidden={isQrPassOpen}
           style={{
             transform: isQrPassOpen ? 'rotateY(180deg)' : 'rotateY(0deg)',
-            opacity: isQrPassOpen ? 0 : 1,
+            visibility: !isQrPassOpen || isFlipAnimating ? 'visible' : 'hidden',
             pointerEvents: isQrPassOpen ? 'none' : 'auto',
           }}
         >
@@ -481,21 +494,29 @@ export const UnbPocketApp: React.FC<UnbPocketAppProps> = ({
           </div>
         </div>
 
-        {/* Verso: Passe QR Tela Cheia (#FFFFFF puro) */}
-        {isQrPassOpen && (
+        {/* Verso: Passe QR Tela Cheia (#FFFFFF puro) com rotacao 3D simetrica */}
+        <div
+          className={`app-flip-face ${!isQrPassOpen ? 'app-flip-face--hidden' : ''}`.trim()}
+          aria-hidden={!isQrPassOpen}
+          style={{
+            transform: isQrPassOpen ? 'rotateY(0deg)' : 'rotateY(-180deg)',
+            visibility: isQrPassOpen || isFlipAnimating ? 'visible' : 'hidden',
+            pointerEvents: isQrPassOpen ? 'auto' : 'none',
+          }}
+        >
           <RuFullScreenQrPass
+            active={isQrPassOpen}
             core={core}
             carteirinha={discenteUiState.carteirinha?.value ?? null}
             isLoading={isLoadingQr}
             hasError={discenteUiState.carteirinhaError !== null}
             onDismiss={stores.discenteStore.resetQrCardToBalance}
             style={{
-              position: 'absolute',
-              inset: 0,
-              zIndex: 30,
+              width: '100%',
+              height: '100%',
             }}
           />
-        )}
+        </div>
       </div>
 
       <AccountQuickSheet

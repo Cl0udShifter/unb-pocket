@@ -234,7 +234,39 @@ function extractTextSpansFromItems(
       }
     }
   }
-  return spans;
+  return mergeAdjacentSameLineSpans(spans);
+}
+
+function mergeAdjacentSameLineSpans(rawSpans: readonly PdfTextSpan[]): PdfTextSpan[] {
+  if (rawSpans.length <= 1) return [...rawSpans];
+  const sorted = [...rawSpans].sort((a, b) => {
+    if (Math.abs(a.top - b.top) <= 2.2) {
+      return a.x0 - b.x0;
+    }
+    return a.top - b.top;
+  });
+
+  const merged: PdfTextSpan[] = [];
+  for (const span of sorted) {
+    const prev = merged[merged.length - 1];
+    if (prev && Math.abs(span.top - prev.top) <= 2.2) {
+      const lineH = Math.max(1, prev.bottom - prev.top);
+      const maxTouchGap = Math.max(1.3, lineH * 0.12);
+      const gap = span.x0 - prev.x1;
+      if (gap >= -1.5 && gap <= maxTouchGap) {
+        merged[merged.length - 1] = {
+          text: `${prev.text}${span.text}`,
+          x0: Math.min(prev.x0, span.x0),
+          top: Math.min(prev.top, span.top),
+          x1: Math.max(prev.x1, span.x1),
+          bottom: Math.max(prev.bottom, span.bottom),
+        };
+        continue;
+      }
+    }
+    merged.push(span);
+  }
+  return merged;
 }
 
 export async function extractCarteirinhaWithPdfJs(

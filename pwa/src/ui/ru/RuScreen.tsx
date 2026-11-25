@@ -51,6 +51,7 @@ import {
   SkeletonBox,
   SkeletonInlineBar,
   StatusTag,
+  UnbPullToRefreshBox,
 } from '../components/CommonComponents';
 import type { ViewableDocumentRequest } from '../components/InAppDocumentViewerModal';
 import { IosInstallCard } from '../components/IosInstallCard';
@@ -181,7 +182,7 @@ export const RuScreen: React.FC<RuScreenProps> = ({
         </div>
       )}
 
-      <div className="screen-scroll">
+      <UnbPullToRefreshBox isRefreshing={uiState.isRefreshingMenu} onRefresh={onRefreshMenu}>
         <IosInstallCard />
 
         {uiState.menuError && (
@@ -306,7 +307,7 @@ export const RuScreen: React.FC<RuScreenProps> = ({
             )}
           </div>
         )}
-      </div>
+      </UnbPullToRefreshBox>
 
       <CampusPickerBottomSheet
         open={uiState.isCampusSheetOpen}
