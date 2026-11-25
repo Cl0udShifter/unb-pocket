@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108" width="128" height="128" role="img" aria-label="UnB Pocket">
+  <defs>
+    <clipPath id="squircle">
+      <rect x="2" y="2" width="104" height="104" rx="24" />
+    </clipPath>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect width="108" height="108" fill="#111112" />
+    <!-- Card 1 (back - RU sage green) -->
+    <path fill="#DFF0E4" d="M37,28 L71,28 Q77,28 77,34 L77,50 Q77,56 71,56 L37,56 Q31,56 31,50 L31,34 Q31,28 37,28 Z" />
+    <!-- Card 2 (middle - elevated charcoal) -->
+    <path fill="#2B2B30" stroke="#3D3D44" stroke-width="1" d="M35,36 L73,36 Q79,36 79,42 L79,58 Q79,64 73,64 L35,64 Q29,64 29,58 L29,42 Q29,36 35,36 Z" />
+    <!-- Card 3 (front - off-white pocket with top notch) -->
+    <path fill="#F3F3F2" d="M27,50 Q27,44 33,44 L44,44 C46,48.5 49.5,51 54,51 C58.5,51 62,48.5 64,44 L75,44 Q81,44 81,50 L81,71 Q81,79 73,79 L35,79 Q27,79 27,71 Z" />
+    <!-- Minimal ID lines -->
+    <path fill="#141413" d="M36.5,61 L47.5,61 Q49,61 49,62.5 Q49,64 47.5,64 L36.5,64 Q35,64 35,62.5 Q35,61 36.5,61 Z" />
+    <path fill="#9A9AA0" d="M36.2,67 L43.8,67 Q45,67 45,68.2 Q45,69.4 43.8,69.4 L36.2,69.4 Q35,69.4 35,68.2 Q35,67 36.2,67 Z" />
+    <!-- Mini QR frame -->
+    <path fill="none" stroke="#141413" stroke-width="2" d="M64,58.5 L70,58.5 Q72,58.5 72,60.5 L72,66.5 Q72,68.5 70,68.5 L64,68.5 Q62,68.5 62,66.5 L62,60.5 Q62,58.5 64,58.5 Z" />
+    <path fill="#0D4322" d="M65.8,61.8 L68.2,61.8 Q68.8,61.8 68.8,62.4 L68.8,64.8 Q68.8,65.4 68.2,65.4 L65.8,65.4 Q65.2,65.4 65.2,64.8 L65.2,62.4 Q65.2,61.8 65.8,61.8 Z" />
+  </g>
+  <rect x="2.5" y="2.5" width="103" height="103" rx="23.5" fill="none" stroke="#2B2B30" stroke-width="1" />
+</svg>

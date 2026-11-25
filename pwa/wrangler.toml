@@ -1,0 +1,5 @@
+name = "unb-pocket"
+pages_build_output_dir = "dist"
+compatibility_date = "2025-02-01"
+
+# Zero KV / D1 / R2 bindings: proxy is strictly stateless.

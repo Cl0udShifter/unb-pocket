@@ -1,0 +1,747 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  background-color: var(--ground);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
+  text-size-adjust: 100%;
+  -webkit-text-size-adjust: 100%;
+}
+
+#root {
+  width: 100%;
+  min-height: 100dvh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--ground);
+  overflow: hidden;
+}
+
+/* Impede auto-zoom do Safari iOS em campos de formulario */
+@media (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: max(1rem, 16px) !important;
+  }
+}
+
+button,
+[role='tab'],
+[role='button'],
+a {
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font-family: inherit;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0;
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: default;
+  opacity: 0.58;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Estrutura Principal App Shell */
+.app-perspective-stage {
+  position: relative;
+  width: 100%;
+  height: 100dvh;
+  perspective: 1400px;
+  background-color: var(--ground);
+  overflow: hidden;
+}
+
+.app-flip-face {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  transition:
+    transform 420ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 200ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-flip-face {
+    transition: opacity 150ms ease;
+    transform: none !important;
+  }
+}
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  background-color: var(--ground);
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+.app-shell-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 840px;
+  margin: 0 auto;
+  position: relative;
+}
+
+@media (min-width: 600px) {
+  .app-shell {
+    flex-direction: row;
+  }
+}
+
+/* Area Rolavel de Tela */
+.screen-root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--ground);
+}
+
+.screen-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  padding: var(--space-xs) var(--space-lg) 118px;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.screen-scroll--subpage {
+  padding-bottom: calc(var(--space-xl) + var(--safe-bottom));
+}
+
+@media (min-width: 600px) {
+  .screen-scroll {
+    padding-bottom: calc(var(--space-xl) + var(--safe-bottom));
+  }
+}
+
+/* Cabecalho Editorial */
+.editorial-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  padding: calc(var(--safe-top) + var(--space-md)) var(--space-lg) var(--space-md);
+  background-color: var(--ground);
+  flex-shrink: 0;
+}
+
+.editorial-header__left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  min-width: 0;
+  flex: 1;
+}
+
+.editorial-header__titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.editorial-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-right: -6px;
+  flex-shrink: 0;
+}
+
+/* Botoes e Cartoes Editoriais (Flat-by-Default, 0 shadow) */
+.icon-action-btn {
+  position: relative;
+  width: 38px;
+  height: 44px;
+  min-width: 38px;
+  min-height: 44px;
+  border-radius: var(--radius-capsule);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  transition: background-color 140ms ease;
+}
+
+.icon-action-btn__dot {
+  position: absolute;
+  top: 11px;
+  right: 9px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--ink);
+}
+
+.back-header-btn {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  min-height: 48px;
+  border-radius: 50%;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink);
+  flex-shrink: 0;
+}
+
+.editorial-card {
+  width: 100%;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.editorial-card--interactive {
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    transform 100ms ease;
+}
+
+.editorial-card--interactive:active,
+.inner-tile--interactive:active,
+.btn-primary:active,
+.btn-secondary:active,
+.btn-tonal:active {
+  transform: scale(0.99);
+}
+
+.inner-tile {
+  width: 100%;
+  background-color: var(--surface-raised);
+  border-radius: var(--radius-inner);
+  padding: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+  border: 1px solid transparent;
+}
+
+.inner-tile--bordered {
+  border-color: var(--border);
+}
+
+.inner-tile--interactive {
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    transform 100ms ease;
+}
+
+.hairline-divider {
+  width: 100%;
+  height: 1px;
+  background-color: var(--rule);
+  border: 0;
+  margin: 0;
+  flex-shrink: 0;
+}
+
+/* Hover restrito a ponteiros finos (mouse/trackpad) */
+@media (hover: hover) and (pointer: fine) {
+  .icon-action-btn:hover:not(:disabled) {
+    background-color: var(--surface-raised);
+  }
+  .editorial-card--interactive:hover {
+    border-color: var(--muted);
+  }
+  .inner-tile--interactive:hover {
+    border-color: var(--border);
+  }
+}
+
+/* Botoes Padrao */
+.btn-primary {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: var(--radius-inner);
+  background-color: var(--pill-active-bg);
+  color: var(--pill-active-ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.btn-tonal {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: var(--radius-inner);
+  background-color: var(--surface-raised);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.btn-secondary {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: var(--radius-inner);
+  background-color: transparent;
+  border: 1px solid var(--border);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+.btn-danger-outline {
+  min-height: 48px;
+  padding: 10px 16px;
+  border-radius: var(--radius-inner);
+  background-color: transparent;
+  border: 1px solid var(--danger-border);
+  color: var(--danger-text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+/* Segmented Bar */
+.segmented-bar {
+  display: flex;
+  width: 100%;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.segmented-bar__item {
+  flex: 1;
+  min-height: 40px;
+  padding: 8px 8px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.segmented-bar__item--active {
+  background-color: var(--surface-raised);
+  color: var(--ink);
+}
+
+/* Badges Dieteticas e Status Tags */
+.dietary-badge {
+  min-width: 76px;
+  padding: 5px 10px;
+  border-radius: var(--radius-tag);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  flex-shrink: 0;
+}
+.dietary-badge--PADRAO {
+  background-color: var(--tag-std-bg);
+  color: var(--tag-std-ink);
+}
+.dietary-badge--OVOLACTO {
+  background-color: var(--tag-ovo-bg);
+  color: var(--tag-ovo-ink);
+}
+.dietary-badge--VEGANO {
+  background-color: var(--tag-veg-bg);
+  color: var(--tag-veg-ink);
+}
+
+.status-tag {
+  padding: 4px 8px;
+  border-radius: var(--radius-tag);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.25;
+  white-space: nowrap;
+}
+.status-tag--NEUTRAL {
+  background-color: var(--surface-raised);
+  color: var(--muted);
+}
+.status-tag--INFO {
+  background-color: var(--info-bg);
+  color: var(--info-ink);
+}
+.status-tag--WARNING {
+  background-color: var(--warning-bg);
+  color: var(--warning-ink);
+}
+.status-tag--DANGER {
+  background-color: var(--danger-bg);
+  color: var(--danger-ink);
+}
+.status-tag--INVERTED {
+  background-color: var(--pill-active-bg);
+  color: var(--pill-active-ink);
+}
+
+/* Capsula de Navegacao Inferior e Rail */
+.capsule-bottom-bar-wrap {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 8px var(--space-lg) calc(12px + var(--safe-bottom));
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 20;
+}
+
+.capsule-bottom-bar {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background-color: var(--nav-bg);
+  border: 1px solid var(--nav-border);
+  border-radius: var(--radius-capsule);
+}
+
+.capsule-bottom-bar__tab {
+  min-width: 68px;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: var(--radius-capsule);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--muted);
+  transition:
+    background-color 150ms ease,
+    color 150ms ease;
+}
+
+.capsule-bottom-bar__tab--active {
+  background-color: var(--pill-active-bg);
+  color: var(--pill-active-ink);
+}
+
+.nav-rail {
+  width: 88px;
+  height: 100%;
+  background-color: var(--nav-bg);
+  border-right: 1px solid var(--border);
+  padding: calc(var(--safe-top) + var(--space-lg)) 8px calc(var(--safe-bottom) + var(--space-lg));
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.nav-rail__item {
+  width: 72px;
+  min-height: 56px;
+  padding: 8px 4px;
+  border-radius: var(--radius-inner);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.nav-rail__item--active {
+  color: var(--ink);
+}
+
+.nav-rail__pill {
+  width: 52px;
+  height: 32px;
+  border-radius: var(--radius-capsule);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nav-rail__item--active .nav-rail__pill {
+  background-color: var(--pill-active-bg);
+  color: var(--pill-active-ink);
+}
+
+/* Skeletons Tonais Planos (sem shimmer colorido) */
+@keyframes unb-skeleton-pulse {
+  0% {
+    opacity: 0.62;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.skeleton-box {
+  background-color: var(--surface-raised);
+  border-radius: var(--radius-inner);
+  animation: unb-skeleton-pulse 850ms ease-in-out infinite alternate;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton-box {
+    animation: none;
+    opacity: 0.88;
+  }
+}
+
+/* Native <dialog> Bottom Sheets e Modals (modern-web-guidance: dialog) */
+/* MANDATORY (both rules): without them, scrolling over the backdrop or inside the dialog scrolls the page behind it */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background-color: rgba(0, 0, 0, 0.56);
+}
+
+dialog.unb-sheet {
+  margin: auto auto 0 auto;
+  width: 100%;
+  max-width: 640px;
+  max-height: min(90dvh, 820px);
+  padding: 0;
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: var(--radius-sheet) var(--radius-sheet) 0 0;
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+dialog.unb-sheet[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.unb-dialog-center {
+  margin: auto;
+  width: calc(100% - 32px);
+  max-width: 420px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background-color: var(--surface);
+  color: var(--ink);
+}
+
+dialog.unb-dialog-center[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+dialog.unb-doc-modal {
+  margin: auto;
+  width: 100%;
+  max-width: 860px;
+  height: 100dvh;
+  max-height: 100dvh;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background-color: var(--ground);
+  color: var(--ink);
+}
+
+@media (min-width: 700px) {
+  dialog.unb-doc-modal {
+    height: 92dvh;
+    max-height: 92dvh;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-card);
+  }
+}
+
+dialog.unb-doc-modal[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+.sheet-handle {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background-color: var(--border);
+  margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+
+.sheet-body {
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-sm) var(--space-lg) calc(var(--space-lg) + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+/* Campos de Entrada */
+.unb-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.unb-input {
+  width: 100%;
+  min-height: 50px;
+  padding: 12px 14px;
+  border-radius: var(--radius-inner);
+  border: 1px solid var(--border);
+  background-color: var(--surface-raised);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 1rem;
+  outline: none;
+  transition: border-color 140ms ease;
+}
+
+.unb-input:focus {
+  border-color: var(--ink);
+}
+
+.unb-input::placeholder {
+  color: var(--muted);
+}
+
+/* Switch Editorial */
+.unb-switch {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  min-width: 48px;
+  border-radius: var(--radius-capsule);
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+  flex-shrink: 0;
+}
+
+.unb-switch--checked {
+  background-color: var(--pill-active-bg);
+  border-color: var(--pill-active-bg);
+}
+
+.unb-switch__thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background-color: var(--muted);
+  transform: translateX(0);
+  transition:
+    transform 160ms ease,
+    background-color 160ms ease;
+}
+
+.unb-switch--checked .unb-switch__thumb {
+  background-color: var(--pill-active-ink);
+  transform: translateX(20px);
+}
+
+/* Filter Chip Editorial */
+.filter-chip {
+  min-height: 36px;
+  padding: 6px 12px;
+  border-radius: 10px;
+  background-color: var(--surface-raised);
+  border: 1px solid var(--border);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.filter-chip--selected {
+  background-color: var(--pill-active-bg);
+  border-color: var(--pill-active-bg);
+  color: var(--pill-active-ink);
+}
